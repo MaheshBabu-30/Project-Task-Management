@@ -1,0 +1,36 @@
+{
+  "name": "project-task-management-hono",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "set NODE_TLS_REJECT_UNAUTHORIZED=0&& tsx watch src/server.ts",
+    "start": "node dist/src/server.js",
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@hono/node-server": "^1.19.9",
+    "bcrypt": "^6.0.0",
+    "dotenv": "^17.3.1",
+    "drizzle-orm": "^0.45.1",
+    "google-auth-library": "^10.6.2",
+    "hono": "^4.11.9",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.18.0",
+    "valibot": "^1.2.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.5.0",
+    "@types/pg": "^8.20.0",
+    "drizzle-kit": "^0.31.9",
+    "nodemon": "^3.1.11",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
