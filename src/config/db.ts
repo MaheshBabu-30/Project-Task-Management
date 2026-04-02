@@ -11,7 +11,7 @@ const caPath = path.resolve("./ca.pem");
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    ca: fs.readFileSync(caPath).toString(),
+    ...(fs.existsSync(caPath) ? { ca: fs.readFileSync(caPath).toString() } : {}),
     rejectUnauthorized: false,
   },
 });
