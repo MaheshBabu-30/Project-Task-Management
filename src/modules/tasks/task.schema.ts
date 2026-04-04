@@ -1,8 +1,9 @@
-import { object, string, optional, number, minValue, pipe } from "valibot";
+import { object, string, optional, number, minValue, pipe, picklist } from "valibot";
 
 export const createTaskSchema = object({
   title: string(),
   description: optional(string()),
+  priority: optional(picklist(["URGENT", "HIGH", "MEDIUM", "LOW"])),
   projectId: number(),
   assignedTo: number()
 });
@@ -10,6 +11,7 @@ export const createTaskSchema = object({
 export const updateTaskSchema = object({
   title: optional(string()),
   description: optional(string()),
+  priority: optional(picklist(["URGENT", "HIGH", "MEDIUM", "LOW"])),
   projectId: optional(number()),
   assignedTo: optional(number()),
   status: optional(string())

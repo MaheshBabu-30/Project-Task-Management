@@ -11,5 +11,5 @@ export default defineConfig({
       rejectUnauthorized: false
     }
   },
-  tablesFilter: ["users", "sessions", "projects", "tasks"]
+  tablesFilter: ["users", "sessions", "projects", "tasks", "otps"]
 });

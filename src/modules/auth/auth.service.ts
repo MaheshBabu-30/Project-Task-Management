@@ -1,9 +1,10 @@
 import bcrypt from "bcrypt";
 import { db } from "../../config/db.js";
-import { users, sessions } from "../../../drizzle/schema.js";
-import { eq, and } from "drizzle-orm";
+import { users, sessions, otps } from "../../../drizzle/schema.js";
+import { eq, and, desc } from "drizzle-orm";
 import { generateToken, generateRefreshToken, verifyRefreshToken } from "../../utils/jwt.js";
 import { AppError } from "../../utils/errors.js";
+import { sendOtpEmail } from "../../utils/mail.service.js";
 
 export const createSession = async (userId: number, refreshToken: string) => {
   const expiresAt = new Date();
@@ -68,10 +69,11 @@ export const loginUser = async ({ email, password }: { email: string; password: 
   if (!user) {
     throw new AppError("Invalid credentials", 401);
   }
+  if (!user.password) {
+    throw new AppError("This account uses Email OTP login. Please request a code.", 401);
+  }
 
-
-
-  const isValid = await bcrypt.compare(password, user.password);
+  const isValid = await bcrypt.compare(password, user.password as string);
 
   if (!isValid) {
     throw new AppError("Invalid credentials", 401);
@@ -107,7 +109,7 @@ export const refreshSession = async (token: string) => {
     const [session] = await db
       .select()
       .from(sessions)
-      .where(and(
+      .where(and( 
         eq(sessions.refreshToken, token),
         eq(sessions.userId, payload.userId)
       ));
@@ -135,4 +137,90 @@ export const refreshSession = async (token: string) => {
   } catch (error) {
     throw new AppError(error instanceof AppError ? error.message : "Invalid or expired refresh token", 401);
   }
+};
+
+export const requestOtp = async (email: string) => {
+  // 0. Check if user exists
+  const [user] = await db.select().from(users).where(eq(users.email, email));
+  if (!user) {
+    throw new AppError("This email is not registered. Please register first.", 404);
+  }
+
+  // 1. Generate 6 digit code
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  
+  // 2. Hash the code
+  const otpHash = await bcrypt.hash(otp, 10);
+  
+  // 3. Set expiry (5 mins)
+  const expiresAt = new Date();
+  expiresAt.setMinutes(expiresAt.getMinutes() + 5);
+
+  // 4. Save to DB
+  await db.insert(otps).values({
+    email,
+    otpHash,
+    expiresAt
+  });
+
+  // 5. Send Email
+  const sent = await sendOtpEmail(email, otp);
+  if (!sent) throw new AppError("Failed to send verification email", 500);
+
+  return { message: "Verification code sent to your email" };
+};
+
+export const verifyOtp = async (email: string, otp: string) => {
+  // 1. Get the latest OTP for this email
+  const [latestOtp] = await db
+    .select()
+    .from(otps)
+    .where(eq(otps.email, email))
+    .orderBy(desc(otps.createdAt))
+    .limit(1);
+
+  if (!latestOtp) throw new AppError("No verification code found. Please request a new one.", 400);
+
+  // 2. Check expiry
+  if (latestOtp.expiresAt < new Date()) {
+    await db.delete(otps).where(eq(otps.id, latestOtp.id));
+    throw new AppError("Verification code has expired. Please request a new one.", 400);
+  }
+
+  // 3. Verify math
+  const isValid = await bcrypt.compare(otp, latestOtp.otpHash);
+  if (!isValid) throw new AppError("Invalid verification code", 400);
+
+  // 4. Cleanup OTP
+  await db.delete(otps).where(eq(otps.email, email));
+
+  // 5. Check if user exists
+  const [user] = await db.select().from(users).where(eq(users.email, email));
+
+  if (!user) throw new AppError("User account not found", 404);
+
+  // 6. Generate standard tokens
+  const accessToken = generateToken({ userId: user.id, role: user.role });
+  const refreshToken = generateRefreshToken({ userId: user.id });
+
+  await createSession(user.id, refreshToken);
+
+  return {
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role
+    },
+    tokens: { accessToken, refreshToken }
+  };
+};
+
+export const logoutUser = async (userId: number, refreshToken: string) => {
+  await db.delete(sessions).where(
+    and(
+      eq(sessions.userId, userId),
+      eq(sessions.refreshToken, refreshToken)
+    )
+  );
 };
