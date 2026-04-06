@@ -4,9 +4,6 @@ import {createTaskSchema, updateTaskSchema, taskQuerySchema} from "./task.schema
 import { createTask, updateTask, getTasks, getTaskById, softDeleteTask } from "./task.service.js";
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../utils/pagination.js";
-import { db } from "../../config/db.js";
-import { tasks } from "../../../drizzle/schema.js";
-import { eq } from "drizzle-orm";
 
 export const createNewTask = async (c: Context) => {
   const user = c.get("user");
@@ -114,17 +111,6 @@ export const getTasksList = async (c: Context) => {
     tasks: data,
     pagination
   });
-};
-
-export const getTaskDetails = async (c: Context) => {
-  const id = Number(c.req.param("id"));
-  const task = await getTaskById(id);
-
-  if (!task) {
-    return c.json({ message: "Task not found" }, 404);
-  }
-
-  return successResponse(c, task);
 };
 
 export const getDeletedTasksList = async (c: Context) => {

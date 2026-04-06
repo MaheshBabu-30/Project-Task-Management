@@ -1,4 +1,4 @@
-import { object, string, optional, number, minValue, pipe, picklist, array, date, boolean } from "valibot";
+import { object, string, optional, number, minValue, pipe, picklist, array, boolean } from "valibot";
 
 export const createTaskSchema = object({
   title: string(),
@@ -16,13 +16,13 @@ export const updateTaskSchema = object({
   dueDate: optional(string()),
   projectId: optional(number()),
   assignedUserIds: optional(array(number())),
-  status: optional(string())
+  status: optional(picklist(["PENDING", "IN_PROGRESS", "COMPLETED"]))
 });
 
 export const taskQuerySchema = object({
   id: optional(string()),
-  status: optional(string()),
-  priority: optional(string()),
+  status: optional(picklist(["PENDING", "IN_PROGRESS", "COMPLETED"])),
+  priority: optional(picklist(["URGENT", "HIGH", "MEDIUM", "LOW"])),
   search: optional(string()),
   projectId: optional(string()),
   assignedUserId: optional(string()),

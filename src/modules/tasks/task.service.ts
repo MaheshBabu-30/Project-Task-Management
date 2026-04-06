@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { tasks, projects, taskAssignments, users } from "../../../drizzle/schema.js";
-import { eq, and, ilike, asc, desc, isNull, inArray } from "drizzle-orm";
+import { eq, and, ilike, asc, desc, inArray } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
 export const createTask = async (data: any, assignedUserIds: number[]) => {
@@ -85,7 +85,7 @@ export const softDeleteTask = async (id: number) => {
   if (!task) throw new AppError("Task not found", 404);
 
   if (task.status !== "COMPLETED") {
-    throw new AppError("Only completed tasks can be archived", 400);
+    throw new AppError("Only completed tasks can be deleted", 400);
   }
 
   await db
@@ -164,7 +164,10 @@ export const getTasks = async (query: Record<string, any>, currentUser: { role: 
       .select({ userId: taskAssignments.userId })
       .from(taskAssignments)
       .where(eq(taskAssignments.taskId, task.id));
-    return { ...task, assignedUserIds: assignments.map(a => a.userId) };
+    
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { assignedTo, ...rest } = task;
+    return { ...rest, assignedUserIds: assignments.map(a => a.userId) };
   }));
 
   const totalResult = await db
