@@ -97,10 +97,11 @@ export const softDeleteTask = async (id: number) => {
 };
 
 export const getTasks = async (query: Record<string, any>, currentUser: { role: string; userId: number }) => {
-  const { status, priority, search, projectId, assignedUserId, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
+  const { id, status, priority, search, projectId, assignedUserId, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
 
   const filters = [eq(tasks.deleted, showDeleted)];
 
+  if (id) filters.push(eq(tasks.id, Number(id)));
   if (status) filters.push(eq(tasks.status, status));
   if (priority) filters.push(eq(tasks.priority, priority));
   if (projectId) filters.push(eq(tasks.projectId, Number(projectId)));

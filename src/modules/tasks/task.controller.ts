@@ -110,6 +110,17 @@ export const getTasksList = async (c: Context) => {
   });
 };
 
+export const getTaskDetails = async (c: Context) => {
+  const id = Number(c.req.param("id"));
+  const task = await getTaskById(id);
+
+  if (!task) {
+    return c.json({ message: "Task not found" }, 404);
+  }
+
+  return successResponse(c, task);
+};
+
 export const getDeletedTasksList = async (c: Context) => {
   const user = c.get("user");
   if (user.role !== "ADMIN") {
