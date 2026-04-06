@@ -43,8 +43,14 @@ export const updateTaskDetails = async (c: Context) => {
     return c.json({ message: "Task not found" }, 404);
   }
 
-  // 👮 Admin can update everything
+  // 👮 Admin can update metadata but NOT status
   if (user.role === "ADMIN") {
+    if (data.status) {
+      return c.json(
+        { message: "Admins cannot update task status. Status updates are reserved for assigned developers." },
+        403
+      );
+    }
     const updated = await updateTask(id, data, assignedUserIds);
     return successResponse(c, updated);
   }
