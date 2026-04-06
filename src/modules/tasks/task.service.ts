@@ -102,8 +102,8 @@ export const getTasks = async (query: Record<string, any>, currentUser: { role: 
   const filters = [eq(tasks.deleted, showDeleted)];
 
   if (id) filters.push(eq(tasks.id, Number(id)));
-  if (status) filters.push(eq(tasks.status, status));
-  if (priority) filters.push(eq(tasks.priority, priority));
+  if (status) filters.push(eq(tasks.status, status.toUpperCase()));
+  if (priority) filters.push(eq(tasks.priority, priority.toUpperCase()));
   if (projectId) filters.push(eq(tasks.projectId, Number(projectId)));
 
   // 🔍 Search title or description
