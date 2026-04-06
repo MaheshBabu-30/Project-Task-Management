@@ -2,6 +2,7 @@ import { parse } from "valibot";
 import type { Context } from "hono";
 import {
   createProjectSchema,
+  updateProjectSchema,
   projectQuerySchema
 } from "./project.schema.js";
 import { createProject, getProjects, getProjectById, updateProject, deleteProject } from "./project.service.js";
@@ -97,7 +98,7 @@ export const updateProjectDetails = async (c: Context) => {
 
   const id = Number(c.req.param("id"));
   const body = await c.req.json();
-  const data = parse(createProjectSchema, body); // Reusing create schema for simplicity
+  const data = parse(updateProjectSchema, body); 
 
   const updated = await updateProject(id, data);
   if (!updated) {

@@ -5,6 +5,11 @@ export const createProjectSchema = object({
   description: optional(string())
 });
 
+export const updateProjectSchema = object({
+  name: optional(string()),
+  description: optional(string())
+});
+
 export const projectQuerySchema = object({
   id: optional(string()),
   name: optional(string()),
