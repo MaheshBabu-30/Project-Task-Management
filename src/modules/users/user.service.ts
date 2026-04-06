@@ -25,6 +25,7 @@ export const getUsers = async (query: Record<string, any>) => {
       name: users.name,
       email: users.email,
       role: users.role,
+      isActive: users.isActive,
       createdAt: users.createdAt
     })
     .from(users)
@@ -33,9 +34,21 @@ export const getUsers = async (query: Record<string, any>) => {
     .limit(limit)
     .offset(offset);
 
-  const totalResult = await db.select().from(users).where(whereCondition);
+  const totalResult = await db.select({ id: users.id }).from(users).where(whereCondition);
 
-  const totalRecords = totalResult.length;
+  return { data, totalRecords: totalResult.length };
+};
 
-  return { data, totalRecords };
+export const updateUserStatus = async (id: number, isActive: boolean) => {
+  const [updated] = await db
+    .update(users)
+    .set({ isActive })
+    .where(eq(users.id, id))
+    .returning({
+      id: users.id,
+      name: users.name,
+      isActive: users.isActive
+    });
+  
+  return updated;
 };

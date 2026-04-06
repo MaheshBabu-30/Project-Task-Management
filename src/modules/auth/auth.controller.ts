@@ -5,7 +5,7 @@ import { registerUser, loginUser, refreshSession, requestOtp, verifyOtp, logoutU
 import { successResponse } from "../../utils/response.js";
 import { AppError } from "../../utils/errors.js";
 
-export const logout = async (c: Context) => {
+export const logoutUserAccount = async (c: Context) => {
   const user = c.get("user");
   const { refreshToken } = await c.req.json();
 
@@ -19,7 +19,7 @@ export const logout = async (c: Context) => {
 };
 
 
-export const register = async (c: Context) => {
+export const registerUserAccount = async (c: Context) => {
   const body = await c.req.json();
 
   const data = parse(registerSchema, body);
@@ -29,7 +29,7 @@ export const register = async (c: Context) => {
   return successResponse(c, result, 201);
 };
 
-export const login = async (c: Context) => {
+export const loginUserAccount = async (c: Context) => {
   const body = await c.req.json();
 
   const data = parse(loginSchema, body);
@@ -40,7 +40,7 @@ export const login = async (c: Context) => {
 };
 
 
-export const refresh = async (c: Context) => {
+export const refreshUserSession = async (c: Context) => {
   const { refreshToken } = await c.req.json();
   
   if (!refreshToken) {
@@ -52,7 +52,7 @@ export const refresh = async (c: Context) => {
   return successResponse(c, result);
 };
 
-export const requestOtpVerify = async (c: Context) => {
+export const requestLoginOtp = async (c: Context) => {
   const body = await c.req.json();
   const data = parse(requestOtpSchema, body);
   
@@ -60,7 +60,7 @@ export const requestOtpVerify = async (c: Context) => {
   return successResponse(c, result);
 };
 
-export const otpVerify = async (c: Context) => {
+export const verifyLoginOtp = async (c: Context) => {
   const body = await c.req.json();
   const data = parse(verifyOtpSchema, body);
   

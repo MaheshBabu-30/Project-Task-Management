@@ -8,10 +8,15 @@ import { createProject, getProjects, getProjectById, updateProject, deleteProjec
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../utils/pagination.js";
 
-export const create = async (c: Context) => {
+export const createNewProject = async (c: Context) => {
+  const user = c.get("user");
+
+  if (user.role !== "ADMIN") {
+    return c.json({ message: "Only admins can create projects" }, 403);
+  }
+
   const body = await c.req.json();
   const data = parse(createProjectSchema, body);
-  const user = c.get("user");
 
   const project = await createProject({
     ...data,
@@ -21,7 +26,7 @@ export const create = async (c: Context) => {
   return successResponse(c, project, 201);
 };
 
-export const list = async (c: Context) => {
+export const getProjectsList = async (c: Context) => {
   const rawQuery = c.req.query();
   const query = parse(projectQuerySchema, {
     ...rawQuery,
@@ -44,7 +49,32 @@ export const list = async (c: Context) => {
   });
 };
 
-export const getById = async (c: Context) => {
+export const getDeletedProjectsList = async (c: Context) => {
+  const user = c.get("user");
+  if (user.role !== "ADMIN") {
+    return c.json({ message: "Only admins can view deleted projects" }, 403);
+  }
+
+  const rawQuery = c.req.query();
+  const query = parse(projectQuerySchema, {
+    ...rawQuery,
+    page: rawQuery.page ? Number(rawQuery.page) : 1,
+    limit: rawQuery.limit ? Number(rawQuery.limit) : 10,
+    showDeleted: true
+  });
+
+  const { data, totalRecords } = await getProjects(query, user);
+
+  const pagination = buildPagination({
+    page: query.page,
+    limit: query.limit,
+    totalRecords
+  });
+
+  return successResponse(c, { projects: data, pagination });
+};
+
+export const getProjectDetails = async (c: Context) => {
   const id = Number(c.req.param("id"));
   const user = c.get("user");
 
@@ -58,7 +88,13 @@ export const getById = async (c: Context) => {
   return successResponse(c, project);
 };
 
-export const update = async (c: Context) => {
+export const updateProjectDetails = async (c: Context) => {
+  const user = c.get("user");
+
+  if (user.role !== "ADMIN") {
+    return c.json({ message: "Only admins can update project metadata" }, 403);
+  }
+
   const id = Number(c.req.param("id"));
   const body = await c.req.json();
   const data = parse(createProjectSchema, body); // Reusing create schema for simplicity
@@ -71,8 +107,14 @@ export const update = async (c: Context) => {
   return successResponse(c, updated);
 };
 
-export const remove = async (c: Context) => {
+export const deleteProjectRecord = async (c: Context) => {
+  const user = c.get("user");
+
+  if (user.role !== "ADMIN") {
+    return c.json({ message: "Only admins can archive projects" }, 403);
+  }
+
   const id = Number(c.req.param("id"));
-  await deleteProject(id);
-  return successResponse(c, { message: "Project deleted successfully" });
+  const result = await deleteProject(id);
+  return successResponse(c, result);
 };

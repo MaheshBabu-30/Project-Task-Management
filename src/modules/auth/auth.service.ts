@@ -69,6 +69,10 @@ export const loginUser = async ({ email, password }: { email: string; password: 
   if (!user) {
     throw new AppError("Invalid credentials", 401);
   }
+  if (!user.isActive) {
+    throw new AppError("Your account is inactive. Please contact admin.", 403);
+  }
+
   if (!user.password) {
     throw new AppError("This account uses Email OTP login. Please request a code.", 401);
   }
@@ -125,6 +129,10 @@ export const refreshSession = async (token: string) => {
       .where(eq(users.id, payload.userId));
 
     if (!user) throw new AppError("User not found", 404);
+    
+    if (!user.isActive) {
+      throw new AppError("Your account is deactivated. Please contact admin.", 403);
+    }
 
     const accessToken = generateToken({ userId: user.id, role: user.role });
     const newRefreshToken = generateRefreshToken({ userId: user.id });
@@ -198,6 +206,10 @@ export const verifyOtp = async (email: string, otp: string) => {
   const [user] = await db.select().from(users).where(eq(users.email, email));
 
   if (!user) throw new AppError("User account not found", 404);
+
+  if (!user.isActive) {
+    throw new AppError("Your account is deactivated. Please contact admin.", 403);
+  }
 
   // 6. Generate standard tokens
   const accessToken = generateToken({ userId: user.id, role: user.role });

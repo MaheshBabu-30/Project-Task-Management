@@ -1,15 +1,15 @@
 import { Hono } from "hono";
-import { register, login, refresh, requestOtpVerify, otpVerify, logout } from "./auth.controller.js";
+import { registerUserAccount, loginUserAccount, refreshUserSession, requestLoginOtp, verifyLoginOtp, logoutUserAccount } from "./auth.controller.js";
 import { authMiddleware } from "../../middlewares/auth.middleware.js";
 
 const router = new Hono();
 
-router.post("/register", register);
-router.post("/login", login);
-router.post("/refresh", refresh);
-router.post("/request-otp", requestOtpVerify);
-router.post("/verify-otp", otpVerify);
-router.post("/logout", authMiddleware, logout);
+router.post("/register", registerUserAccount);
+router.post("/login", loginUserAccount);
+router.post("/refresh", refreshUserSession);
+router.post("/request-otp", requestLoginOtp);
+router.post("/verify-otp", verifyLoginOtp);
+router.post("/logout", authMiddleware, logoutUserAccount);
 
 
 
