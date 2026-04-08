@@ -156,23 +156,40 @@ export const getTasks = async (
     .limit(limit)
     .offset(offset);
 
-  // 5. Fetch assignees for each task
-  const dataWithAssignees = await Promise.all(
-    data.map(async (task) => {
-      const assignees = await db
-        .select({
-          id: users.id,
-          name: users.name,
-          email: users.email,
-          avatarUrl: users.avatarUrl,
-        })
-        .from(taskAssignees)
-        .innerJoin(users, eq(taskAssignees.userId, users.id))
-        .where(eq(taskAssignees.taskId, task.id));
-      
-      return { ...task, assignees };
-    })
-  );
+  // 5. Fetch all assignees for the tasks in one batch query (Fix N+1)
+  const taskIds = data.map((t) => t.id);
+  let assigneesMap: Record<string, any[]> = {};
+
+  if (taskIds.length > 0) {
+    const allAssignees = await db
+      .select({
+        taskId: taskAssignees.taskId,
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        avatarUrl: users.avatarUrl,
+      })
+      .from(taskAssignees)
+      .innerJoin(users, eq(taskAssignees.userId, users.id))
+      .where(inArray(taskAssignees.taskId, taskIds));
+
+    allAssignees.forEach((a) => {
+      const tId = a.taskId;
+      if (!tId) return;
+      if (!assigneesMap[tId]) assigneesMap[tId] = [];
+      assigneesMap[tId]!.push({
+        id: a.id,
+        name: a.name,
+        email: a.email,
+        avatarUrl: a.avatarUrl,
+      });
+    });
+  }
+
+  const dataWithAssignees = data.map((task) => ({
+    ...task,
+    assignees: assigneesMap[task.id] || [],
+  }));
 
   const totalResult = await db
     .select({ count: tasks.id })

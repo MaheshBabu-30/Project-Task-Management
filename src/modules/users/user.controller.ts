@@ -45,7 +45,7 @@ export const toggleUserStatus = async (c: Context) => {
   }
 
   // Superadmin can update anyone; Admin needs their orgId to be checked in service
-  const updated = await updateUserStatus(id, status, admin.orgId);
+  const updated = await updateUserStatus(id, admin.userId, status, admin.orgId);
   return successResponse(c, updated);
 };
 

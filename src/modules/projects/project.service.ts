@@ -101,12 +101,47 @@ export const getProjects = async (
     .limit(limit)
     .offset(offset);
 
+  // 4. Batch fetch members (Fix N+1)
+  const projectIds = data.map((p) => p.id);
+  let membersMap: Record<string, any[]> = {};
+
+  if (projectIds.length > 0) {
+    const allMembers = await db
+      .select({
+        projectId: projectMembers.projectId,
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        avatarUrl: users.avatarUrl,
+      })
+      .from(projectMembers)
+      .innerJoin(users, eq(projectMembers.userId, users.id))
+      .where(inArray(projectMembers.projectId, projectIds));
+
+    allMembers.forEach((m) => {
+      const pId = m.projectId;
+      if (!pId) return;
+      if (!membersMap[pId]) membersMap[pId] = [];
+      membersMap[pId]!.push({
+        id: m.id,
+        name: m.name,
+        email: m.email,
+        avatarUrl: m.avatarUrl,
+      });
+    });
+  }
+
+  const dataWithMembers = data.map((p) => ({
+    ...p,
+    members: membersMap[p.id] || [],
+  }));
+
   const totalResult = await db
     .select({ count: projects.id })
     .from(projects)
     .where(whereCondition);
 
-  return { data, totalRecords: totalResult.length };
+  return { data: dataWithMembers, totalRecords: totalResult.length };
 };
 
 // ─── Get Project By ID ───────────────────────────────────────────────────────

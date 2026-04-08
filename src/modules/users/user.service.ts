@@ -24,8 +24,6 @@ export const getUsers = async (query: UserQuery, contextOrgId?: string) => {
   const filters = [isNull(users.deletedAt)];
 
   // 1. Scoping Logic
-  // If orgId is provided in context (e.g. from an Admin), we MUST filter by it.
-  // If not provided (Superadmin), we can optionally filter by a specific orgId if requested.
   const targetOrgId = contextOrgId || orgId;
 
   if (targetOrgId) {
@@ -109,8 +107,18 @@ export const getUserById = async (userId: string, contextOrgId?: string) => {
 
 // ─── Update User Status (ADMIN only) ──────────────────────────────────────────
 
-export const updateUserStatus = async (id: string, status: "active" | "inactive", adminOrgId: string) => {
-  // Ensure the user belongs to the same org as the admin
+export const updateUserStatus = async (
+  id: string,
+  requesterId: string,
+  status: "active" | "inactive",
+  adminOrgId: string
+) => {
+  // 1. Prevent self-deactivation
+  if (id === requesterId && status === "inactive") {
+    throw new AppError("You cannot deactivate your own account.", 400);
+  }
+
+  // 2. Ensure the user belongs to the same org as the admin
   const [membership] = await db
     .select()
     .from(orgMembers)

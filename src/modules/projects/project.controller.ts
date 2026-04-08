@@ -24,17 +24,23 @@ export const createNewProject = async (c: Context) => {
     return c.json({ message: "Only admins can create projects" }, 403);
   }
 
-  if (!user.orgId && user.role !== "superadmin") {
-    return c.json({ message: "User not assigned to an organization" }, 403);
-  }
-
   const body = await c.req.json();
   const data = parse(createProjectSchema, body);
 
+  // 🏛️ Logic for Implicit vs Explicit Org Assignment
+  // 1. If Superadmin: they MUST provide an orgId in the body
+  // 2. If Admin: we take orgId from their Token
+  const targetOrgId = user.role === "superadmin" ? (body.orgId as string) : user.orgId;
+
+  if (!targetOrgId) {
+    return c.json({ message: "Organization ID is required" }, 400);
+  }
+
   const project = await createProject({
     ...data,
-    orgId: user.orgId,
-    createdBy: user.userId
+    orgId: targetOrgId,
+    createdBy: user.userId,
+    assignedUserIds: body.assignedUserIds,
   });
 
   return successResponse(c, project, 201);
@@ -86,10 +92,6 @@ export const updateProjectDetails = async (c: Context) => {
     return c.json({ message: "Only admins can update project details" }, 403);
   }
 
-  if (!user.orgId && user.role !== "superadmin") {
-    return c.json({ message: "User not assigned to an organization" }, 403);
-  }
-
   const id = c.req.param("id");
   const body = await c.req.json();
   const data = parse(updateProjectSchema, body);
@@ -105,10 +107,6 @@ export const deleteProjectRecord = async (c: Context) => {
 
   if (user.role !== "admin" && user.role !== "superadmin") {
     return c.json({ message: "Only admins can archive projects" }, 403);
-  }
-
-  if (!user.orgId && user.role !== "superadmin") {
-    return c.json({ message: "User not assigned to an organization" }, 403);
   }
 
   const id = c.req.param("id");
