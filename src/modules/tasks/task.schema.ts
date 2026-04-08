@@ -1,28 +1,28 @@
 import { object, string, optional, number, minValue, pipe, picklist, array, boolean } from "valibot";
 
 export const createTaskSchema = object({
-  title: string(),
+  title: string("Task title is required"),
   description: optional(string()),
-  priority: optional(picklist(["URGENT", "HIGH", "MEDIUM", "LOW"])),
-  dueDate: optional(string()), // Receive as string, parse as Date in service
-  projectId: number(),
-  assignedUserIds: array(number()) // Support multiple developers
+  priority: optional(picklist(["low", "medium", "high", "urgent"]), "medium"),
+  dueDate: optional(string()), // Receive as string (YYYY-MM-DD), parse in service
+  projectId: string("projectId is required"),
+  assignedUserIds: optional(array(string())) // Support multiple developers
 });
 
 export const updateTaskSchema = object({
   title: optional(string()),
   description: optional(string()),
-  priority: optional(picklist(["URGENT", "HIGH", "MEDIUM", "LOW"])),
+  priority: optional(picklist(["low", "medium", "high", "urgent"])),
   dueDate: optional(string()),
-  projectId: optional(number()),
-  assignedUserIds: optional(array(number())),
-  status: optional(picklist(["PENDING", "IN_PROGRESS", "COMPLETED"]))
+  projectId: optional(string()),
+  assignedUserIds: optional(array(string())),
+  status: optional(picklist(["to_do", "in_progress", "on_hold", "overdue", "completed"]))
 });
 
 export const taskQuerySchema = object({
   id: optional(string()),
-  status: optional(picklist(["PENDING", "IN_PROGRESS", "COMPLETED"])),
-  priority: optional(picklist(["URGENT", "HIGH", "MEDIUM", "LOW"])),
+  status: optional(picklist(["to_do", "in_progress", "on_hold", "overdue", "completed"])),
+  priority: optional(picklist(["low", "medium", "high", "urgent"])),
   search: optional(string()),
   projectId: optional(string()),
   assignedUserId: optional(string()),

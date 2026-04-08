@@ -1,19 +1,25 @@
-import { object, string, optional, number, minValue, pipe, boolean } from "valibot";
+import { object, string, optional, number, minValue, pipe, boolean, picklist, array } from "valibot";
 
 export const createProjectSchema = object({
-  name: string(),
-  description: optional(string())
+  title: string("Project title is required"),
+  description: optional(string()),
+  logoUrl: optional(string()),
+  assignedUserIds: optional(array(string())), // Developers to assign during creation
 });
 
 export const updateProjectSchema = object({
-  name: optional(string()),
-  description: optional(string())
+  title: optional(string()),
+  description: optional(string()),
+  logoUrl: optional(string()),
+  status: optional(picklist(["active", "on_hold", "completed"])),
+  assignedUserIds: optional(array(string())), // For bulk updating members
 });
 
 export const projectQuerySchema = object({
   id: optional(string()),
-  name: optional(string()),
+  title: optional(string()),
   createdBy: optional(string()),
+  status: optional(picklist(["active", "on_hold", "completed"])),
   page: optional(pipe(number(), minValue(1, "Page must be >= 1"))),
   limit: optional(pipe(number(), minValue(1, "Limit must be >= 1"))),
   sortBy: optional(string()),

@@ -21,10 +21,9 @@ export const logoutUserAccount = async (c: Context) => {
 
 export const registerUserAccount = async (c: Context) => {
   const body = await c.req.json();
-
   const data = parse(registerSchema, body);
 
-  const result = await registerUser(data);
+  const result = await registerUser(data as any);
 
   return successResponse(c, result, 201);
 };

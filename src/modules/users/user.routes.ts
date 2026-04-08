@@ -1,14 +1,20 @@
 import { Hono } from "hono";
-import { getUsersList, toggleUserStatus } from "./user.controller.js";
+import { getUsersList, toggleUserStatus, updateMe, getUserDetails } from "./user.controller.js";
 import { authMiddleware } from "../../middlewares/auth.middleware.js";
 import { roleMiddleware } from "../../middlewares/role.middleware.js";
 
 const router = new Hono();
 
 router.use(authMiddleware);
-router.use(roleMiddleware(["ADMIN"]));
 
+// All users can see details within their scope
 router.get("/", getUsersList);
-router.patch("/:id/status", toggleUserStatus);
+router.get("/:id", getUserDetails);
+
+// Users can update their own profile
+router.patch("/me", updateMe);
+
+// Only admins can toggle developer status
+router.patch("/:id/status", roleMiddleware(["admin", "superadmin"]), toggleUserStatus);
 
 export default router;
