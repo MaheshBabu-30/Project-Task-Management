@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { authMiddleware } from "../../middlewares/auth.middleware.js";
+import { roleMiddleware } from "../../middlewares/role.middleware.js";
 import {
   createOrg,
   listOrgs,
@@ -7,36 +8,19 @@ import {
   assignAdmin,
   addDeveloper,
   removeMember,
-  registerAdmin,
-  registerDeveloper,
+  deleteOrg,
 } from "./org.controller.js";
 
 const router = new Hono();
 
 router.use(authMiddleware);
 
-// SUPERADMIN: Create organization
-router.post("/", createOrg);
-
-// SUPERADMIN: List all organizations
-router.get("/", listOrgs);
-
-// SUPERADMIN + ADMIN (own org): Get org details with members
-router.get("/:id", getOrgDetails);
-
-// SUPERADMIN: Assign an admin user to an org
-router.post("/:id/admin", assignAdmin);
-
-// SUPERADMIN: Create a new user account and assign as admin
-router.post("/:id/register-admin", registerAdmin);
-
-// ADMIN: Add a developer to their org
-router.post("/:id/developers", addDeveloper);
-
-// ADMIN: Create a new developer account and assign to org
-router.post("/:id/register-developer", registerDeveloper);
-
-// SUPERADMIN + ADMIN: Remove a member from an org
-router.delete("/:id/members/:userId", removeMember);
+router.post("/", roleMiddleware(["superadmin"]), createOrg);
+router.get("/", roleMiddleware(["superadmin"]), listOrgs);
+router.get("/:id", roleMiddleware(["superadmin", "admin"]), getOrgDetails);
+router.post("/:id/admin", roleMiddleware(["superadmin"]), assignAdmin);
+router.post("/:id/developers", roleMiddleware(["admin"]), addDeveloper);
+router.delete("/:id", roleMiddleware(["superadmin"]), deleteOrg);
+router.delete("/:id/members/:userId", roleMiddleware(["superadmin", "admin"]), removeMember);
 
 export default router;

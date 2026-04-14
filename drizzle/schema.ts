@@ -8,6 +8,8 @@ import {
   date,
   unique,
   index,
+  integer,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -122,10 +124,13 @@ export const organizations = pgTable(
     }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
   },
   (table) => [
     index("organizations_slug_idx").on(table.slug),
     index("organizations_owner_id_idx").on(table.ownerId),
+    index("organizations_deleted_at_idx").on(table.deletedAt),
   ]
 );
 
@@ -209,6 +214,7 @@ export const tasks = pgTable(
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    parentTaskId: uuid("parent_task_id"), // self-reference added below via relations
     title: varchar("title", { length: 300 }).notNull(),
     description: text("description"),
     status: taskStatusEnum("status").notNull().default("to_do"),
@@ -224,9 +230,11 @@ export const tasks = pgTable(
   },
   (table) => [
     index("tasks_project_id_idx").on(table.projectId),
+    index("tasks_parent_task_id_idx").on(table.parentTaskId),
     index("tasks_status_idx").on(table.status),
     index("tasks_priority_idx").on(table.priority),
     index("tasks_deleted_at_idx").on(table.deletedAt),
+    index("tasks_due_date_idx").on(table.dueDate),
   ]
 );
 
@@ -251,5 +259,103 @@ export const taskAssignees = pgTable(
     unique("task_assignees_unique").on(table.taskId, table.userId),
     index("task_assignees_task_id_idx").on(table.taskId),
     index("task_assignees_user_id_idx").on(table.userId),
+  ]
+);
+
+// ─── Comments ─────────────────────────────────────────────────────────────────
+
+export const comments = pgTable(
+  "comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("comments_task_id_idx").on(table.taskId),
+    index("comments_author_id_idx").on(table.authorId),
+  ]
+);
+
+// ─── Attachments ──────────────────────────────────────────────────────────────
+
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    s3Key: text("s3_key").notNull(),
+    fileName: varchar("file_name", { length: 255 }).notNull(),
+    mimeType: varchar("mime_type", { length: 100 }),
+    fileSize: integer("file_size"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("attachments_task_id_idx").on(table.taskId),
+    index("attachments_uploaded_by_idx").on(table.uploadedBy),
+  ]
+);
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+export const notificationTypeEnum = pgEnum("notification_type", [
+  "task_assigned",
+  "task_overdue",
+  "task_completed",
+  "comment_added",
+  "member_removed",
+]);
+
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: notificationTypeEnum("type").notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    body: text("body"),
+    entityType: varchar("entity_type", { length: 50 }),
+    entityId: uuid("entity_id"),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("notifications_user_id_idx").on(table.userId),
+    index("notifications_unread_idx").on(table.userId, table.readAt),
+  ]
+);
+
+// ─── Audit Logs ───────────────────────────────────────────────────────────────
+
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id").references(() => organizations.id, { onDelete: "set null" }),
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    action: varchar("action", { length: 100 }).notNull(),
+    entityType: varchar("entity_type", { length: 50 }).notNull(),
+    entityId: uuid("entity_id").notNull(),
+    before: text("before"),
+    after: text("after"),
+    ipAddress: varchar("ip_address", { length: 45 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("audit_logs_org_id_idx").on(table.orgId),
+    index("audit_logs_actor_id_idx").on(table.actorId),
+    index("audit_logs_entity_id_idx").on(table.entityId),
+    index("audit_logs_created_at_idx").on(table.createdAt),
   ]
 );

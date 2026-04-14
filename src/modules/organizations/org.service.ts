@@ -1,7 +1,6 @@
-import bcrypt from "bcrypt";
 import { db } from "../../config/db.js";
-import { organizations, orgMembers, users } from "../../../drizzle/schema.js";
-import { eq, and, isNull } from "drizzle-orm";
+import { organizations, orgMembers, users, projects, projectMembers, taskAssignees, tasks } from "../../../drizzle/schema.js";
+import { eq, and, isNull, inArray } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
 // ─── Create Organization ──────────────────────────────────────────────────────
@@ -39,18 +38,36 @@ export const getAllOrganizations = async () => {
       ownerId: organizations.ownerId,
       createdAt: organizations.createdAt,
     })
-    .from(organizations);
+    .from(organizations)
+    .where(isNull(organizations.deletedAt));
 
   return orgs;
 };
 
 // ─── Get Organization By ID ───────────────────────────────────────────────────
 
+export const softDeleteOrg = async (orgId: string, deletedBy: string) => {
+  const [org] = await db
+    .select()
+    .from(organizations)
+    .where(and(eq(organizations.id, orgId), isNull(organizations.deletedAt)));
+
+  if (!org) throw new AppError("Organization not found", 404);
+
+  const [updated] = await db
+    .update(organizations)
+    .set({ deletedAt: new Date(), deletedBy, updatedAt: new Date() })
+    .where(eq(organizations.id, orgId))
+    .returning({ id: organizations.id, name: organizations.name });
+
+  return { message: "Organization deleted successfully", org: updated };
+};
+
 export const getOrganizationById = async (orgId: string) => {
   const [org] = await db
     .select()
     .from(organizations)
-    .where(eq(organizations.id, orgId));
+    .where(and(eq(organizations.id, orgId), isNull(organizations.deletedAt)));
 
   if (!org) throw new AppError("Organization not found", 404);
 
@@ -120,93 +137,6 @@ export const assignAdminToOrg = async (orgId: string, userId: string) => {
   });
 };
 
-// ─── Register New Admin and Assign to Org (SUPERADMIN) ───────────────────────
-
-export const registerAdminForOrg = async (orgId: string, userData: { name: string; email: string; password: string }) => {
-  // 1. Verify org exists
-  const [org] = await db
-    .select()
-    .from(organizations)
-    .where(eq(organizations.id, orgId));
-
-  if (!org) throw new AppError("Organization not found", 404);
-
-  // 2. Check email uniqueness
-  const [existingUser] = await db.select().from(users).where(eq(users.email, userData.email));
-  if (existingUser) throw new AppError("Email already registered", 409);
-
-  return await db.transaction(async (tx) => {
-    // 3. Create the user with 'admin' role
-    const passwordHash = await bcrypt.hash(userData.password, 10);
-    const [newUser] = await tx
-      .insert(users)
-      .values({
-        name: userData.name,
-        email: userData.email,
-        passwordHash,
-        role: "admin",
-      })
-      .returning({ id: users.id, name: users.name, email: users.email });
-
-    if (!newUser) throw new AppError("Failed to create user", 500);
-
-    // 4. Set owner_id on organization
-    await tx
-      .update(organizations)
-      .set({ ownerId: newUser.id, updatedAt: new Date() })
-      .where(eq(organizations.id, orgId));
-
-    // 5. Add to org_members
-    const [member] = await tx
-      .insert(orgMembers)
-      .values({ orgId, userId: newUser.id, role: "admin" })
-      .returning();
-
-    return { user: newUser, org, member };
-  });
-};
-
-// ─── Register New Developer and Assign to Org (ADMIN only) ───────────────────
-
-export const registerDeveloperForOrg = async (
-  orgId: string,
-  addedByOrgId: string,
-  userData: { name: string; email: string; password: string }
-) => {
-  // 1. Ensure admin is adding to their own org only
-  if (orgId !== addedByOrgId) {
-    throw new AppError("You can only add developers to your own organization", 403);
-  }
-
-  // 2. Check email uniqueness
-  const [existingUser] = await db.select().from(users).where(eq(users.email, userData.email));
-  if (existingUser) throw new AppError("Email already registered", 409);
-
-  return await db.transaction(async (tx) => {
-    // 3. Create the user with 'developer' role
-    const passwordHash = await bcrypt.hash(userData.password, 10);
-    const [newUser] = await tx
-      .insert(users)
-      .values({
-        name: userData.name,
-        email: userData.email,
-        passwordHash,
-        role: "developer",
-      })
-      .returning({ id: users.id, name: users.name, email: users.email });
-
-    if (!newUser) throw new AppError("Failed to create user", 500);
-
-    // 4. Add to org_members
-    const [member] = await tx
-      .insert(orgMembers)
-      .values({ orgId, userId: newUser.id, role: "developer" })
-      .returning();
-
-    return { user: newUser, member };
-  });
-};
-
 // ─── Add Developer to Organization (ADMIN) ───────────────────────────────────
 
 export const addDeveloperToOrg = async (
@@ -246,7 +176,7 @@ export const addDeveloperToOrg = async (
   return member;
 };
 
-// ─── Remove Member from Organization ─────────────────────────────────────────
+// ─── Remove Member from Organization (with cascade) ──────────────────────────
 
 export const removeMemberFromOrg = async (orgId: string, userId: string) => {
   const [member] = await db
@@ -256,17 +186,50 @@ export const removeMemberFromOrg = async (orgId: string, userId: string) => {
 
   if (!member) throw new AppError("Member not found in this organization", 404);
 
-  // If removing an admin, also clear the owner_id from the org
-  if (member.role === "admin") {
-    await db
-      .update(organizations)
-      .set({ ownerId: null, updatedAt: new Date() })
-      .where(eq(organizations.id, orgId));
-  }
+  await db.transaction(async (tx) => {
+    // Step 1: Get all project IDs in this org
+    const orgProjects = await tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.orgId, orgId));
 
-  await db
-    .delete(orgMembers)
-    .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)));
+    const projectIds = orgProjects.map((p) => p.id);
+
+    if (projectIds.length > 0) {
+      // Step 2: Get all task IDs in those projects
+      const orgTasks = await tx
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(inArray(tasks.projectId, projectIds));
+
+      const taskIds = orgTasks.map((t) => t.id);
+
+      // Step 3: Remove from task_assignees
+      if (taskIds.length > 0) {
+        await tx
+          .delete(taskAssignees)
+          .where(and(eq(taskAssignees.userId, userId), inArray(taskAssignees.taskId, taskIds)));
+      }
+
+      // Step 4: Remove from project_members
+      await tx
+        .delete(projectMembers)
+        .where(and(eq(projectMembers.userId, userId), inArray(projectMembers.projectId, projectIds)));
+    }
+
+    // Step 5: If removing an admin, clear org owner_id
+    if (member.role === "admin") {
+      await tx
+        .update(organizations)
+        .set({ ownerId: null, updatedAt: new Date() })
+        .where(eq(organizations.id, orgId));
+    }
+
+    // Step 6: Remove from org_members
+    await tx
+      .delete(orgMembers)
+      .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)));
+  });
 
   return { message: "Member removed from organization successfully" };
 };

@@ -1,10 +1,12 @@
-import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, B2_BUCKET_NAME } from "../../config/s3.js";
 import { AppError } from "../../utils/errors.js";
 
 /**
  * Generates a pre-signed URL for a client to upload a file directly to Backblaze B2.
+ * Returns the upload URL and the s3Key — client must save the key and register
+ * it via POST /api/tasks/:id/attachments after upload completes.
  */
 export const generatePresignedUploadUrl = async (params: {
   orgId: string;
@@ -19,11 +21,8 @@ export const generatePresignedUploadUrl = async (params: {
     throw new AppError("B2_BUCKET_NAME is not configured", 500);
   }
 
-  // Sanitize filename and create a unique key
   const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
   const timestamp = Date.now();
-  
-  // Format: org_id/folder/timestamp-userId-filename
   const key = `${orgId}/${folder}/${timestamp}-${userId}-${sanitizedFileName}`;
 
   try {
@@ -33,21 +32,37 @@ export const generatePresignedUploadUrl = async (params: {
       ContentType: contentType,
     });
 
-    // Valid for 10 minutes
+    // Upload URL valid for 10 minutes
     const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 600 });
 
-    // The final public URL (assuming the bucket is public or reachable via a B2 download URL/CDN)
-    // For B2, the download URL format is usually: 
-    // https://f000.backblazeb2.com/file/bucket-name/key
-    const publicUrl = `${process.env.B2_DOWNLOAD_URL || ""}/file/${B2_BUCKET_NAME}/${key}`;
-
-    return {
-      presignedUrl,
-      publicUrl,
-      key,
-    };
+    return { presignedUrl, key };
   } catch (error) {
-    console.error("S3 Presigned URL error:", error);
+    console.error("S3 Presigned upload URL error:", error);
     throw new AppError("Failed to generate upload URL", 500);
+  }
+};
+
+/**
+ * Generates a pre-signed download URL for a private bucket object.
+ * Valid for 1 hour — frontend uses this to let the user view or download the file.
+ */
+export const generatePresignedDownloadUrl = async (s3Key: string) => {
+  if (!B2_BUCKET_NAME) {
+    throw new AppError("B2_BUCKET_NAME is not configured", 500);
+  }
+
+  try {
+    const command = new GetObjectCommand({
+      Bucket: B2_BUCKET_NAME,
+      Key: s3Key,
+    });
+
+    // Download URL valid for 1 hour
+    const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+
+    return { url, expiresIn: 3600 };
+  } catch (error) {
+    console.error("S3 Presigned download URL error:", error);
+    throw new AppError("Failed to generate download URL", 500);
   }
 };

@@ -1,10 +1,11 @@
 import { db } from "../../config/db.js";
 import { projects, tasks, projectMembers, users, taskAssignees } from "../../../drizzle/schema.js";
-import { eq, ilike, and, asc, desc, isNull, inArray, notInArray } from "drizzle-orm";
+import { eq, ilike, and, asc, desc, isNull, inArray, notInArray, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
 interface ProjectQuery {
   id?: string;
+  orgId?: string;
   title?: string;
   createdBy?: string;
   status?: "active" | "on_hold" | "completed";
@@ -55,14 +56,14 @@ export const getProjects = async (
   query: ProjectQuery,
   user: { userId: string; role: string; orgId?: string }
 ) => {
-  const { id, title, createdBy, status, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
+  const { id, orgId, title, createdBy, status, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
 
   const filters = [showDeleted ? notInArray(projects.deletedAt, [null as any]) : isNull(projects.deletedAt)];
 
   // 1. Scoping Logic
   if (user.role === "superadmin") {
     // Superadmin can filter by orgId if provided in query
-    if (query.id) filters.push(eq(projects.orgId, query.id)); 
+    if (orgId) filters.push(eq(projects.orgId, orgId));
   } else {
     // Admins and developers are locked to their org
     if (!user.orgId) throw new AppError("User not assigned to an organization", 403);
@@ -136,12 +137,12 @@ export const getProjects = async (
     members: membersMap[p.id] || [],
   }));
 
-  const totalResult = await db
-    .select({ count: projects.id })
+  const countResult = await db
+    .select({ total: count() })
     .from(projects)
     .where(whereCondition);
 
-  return { data: dataWithMembers, totalRecords: totalResult.length };
+  return { data: dataWithMembers, totalRecords: countResult[0]?.total ?? 0 };
 };
 
 // ─── Get Project By ID ───────────────────────────────────────────────────────

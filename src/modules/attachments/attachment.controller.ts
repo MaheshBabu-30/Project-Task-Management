@@ -1,0 +1,44 @@
+import { parse } from "valibot";
+import type { Context } from "hono";
+import { createAttachmentSchema } from "./attachment.schema.js";
+import { uuidSchema } from "../../utils/schema.js";
+import { getAttachments, linkAttachment, removeAttachment, getAttachmentById } from "./attachment.service.js";
+import { generatePresignedDownloadUrl } from "../uploads/upload.service.js";
+import { successResponse } from "../../utils/response.js";
+
+export const listAttachments = async (c: Context) => {
+  const user = c.get("user");
+  const taskId = parse(uuidSchema("Task ID"), c.req.param("taskId"));
+
+  const data = await getAttachments(taskId, user);
+  return successResponse(c, { attachments: data });
+};
+
+export const addAttachment = async (c: Context) => {
+  const user = c.get("user");
+  const taskId = parse(uuidSchema("Task ID"), c.req.param("taskId"));
+  const body = await c.req.json();
+  const data = parse(createAttachmentSchema, body);
+
+  const attachment = await linkAttachment(taskId, data, user);
+  return successResponse(c, attachment, 201);
+};
+
+export const deleteAttachment = async (c: Context) => {
+  const user = c.get("user");
+  const attachmentId = parse(uuidSchema("Attachment ID"), c.req.param("attachmentId"));
+
+  const result = await removeAttachment(attachmentId, user);
+  return successResponse(c, result);
+};
+
+export const getAttachmentDownloadUrl = async (c: Context) => {
+  const user = c.get("user");
+  const taskId = parse(uuidSchema("Task ID"), c.req.param("taskId"));
+  const attachmentId = parse(uuidSchema("Attachment ID"), c.req.param("attachmentId"));
+
+  const attachment = await getAttachmentById(attachmentId, taskId, user);
+  const result = await generatePresignedDownloadUrl(attachment.s3Key);
+
+  return successResponse(c, result);
+};

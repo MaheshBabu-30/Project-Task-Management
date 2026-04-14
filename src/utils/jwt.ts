@@ -6,6 +6,7 @@ import { env } from "../config/env.js";
 export interface TokenPayload {
   userId: string;
   role: "superadmin" | "admin" | "developer";
+  status: "active" | "inactive";
   orgId?: string; // Present for admin and developer, absent for superadmin
 }
 

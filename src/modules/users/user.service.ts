@@ -1,6 +1,7 @@
+import bcrypt from "bcrypt";
 import { db } from "../../config/db.js";
 import { users, orgMembers } from "../../../drizzle/schema.js";
-import { eq, ilike, and, asc, desc, isNull, inArray } from "drizzle-orm";
+import { eq, ilike, and, asc, desc, isNull, inArray, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
 interface UserQuery {
@@ -15,6 +16,41 @@ interface UserQuery {
   sortBy?: string;
   order?: string;
 }
+
+// ─── Create User ─────────────────────────────────────────────────────────────
+
+export const createUser = async (
+  data: { name: string; email: string; password: string; role: "admin" | "developer" },
+  requester: { userId: string; role: "superadmin" | "admin" | "developer"; orgId?: string }
+) => {
+  // Admin can only create developers
+  if (requester.role === "admin" && data.role !== "developer") {
+    throw new AppError("Admins can only create developer accounts", 403);
+  }
+
+  // Check email uniqueness
+  const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, data.email));
+  if (existing) throw new AppError("Email already registered", 409);
+
+  const passwordHash = await bcrypt.hash(data.password, 10);
+
+  return await db.transaction(async (tx) => {
+    const [newUser] = await tx
+      .insert(users)
+      .values({ name: data.name, email: data.email, passwordHash, role: data.role })
+      .returning({ id: users.id, name: users.name, email: users.email, role: users.role });
+
+    if (!newUser) throw new AppError("Failed to create user", 500);
+
+    // Admin creating developer → auto-assign to admin's org
+    if (requester.role === "admin") {
+      if (!requester.orgId) throw new AppError("Admin has no organization", 403);
+      await tx.insert(orgMembers).values({ orgId: requester.orgId, userId: newUser.id, role: "developer" });
+    }
+
+    return newUser;
+  });
+};
 
 // ─── Get Users (Scoped by Org) ────────────────────────────────────────────────
 
@@ -71,12 +107,12 @@ export const getUsers = async (query: UserQuery, contextOrgId?: string) => {
     .offset(offset);
 
   // 4. Count for pagination
-  const totalResult = await db
-    .select({ count: users.id })
+  const countResult = await db
+    .select({ total: count() })
     .from(users)
     .where(whereCondition);
 
-  return { data, totalRecords: totalResult.length };
+  return { data, totalRecords: countResult[0]?.total ?? 0 };
 };
 
 // ─── Get User By ID ───────────────────────────────────────────────────────────
@@ -111,21 +147,26 @@ export const updateUserStatus = async (
   id: string,
   requesterId: string,
   status: "active" | "inactive",
-  adminOrgId: string
+  requesterRole: "superadmin" | "admin" | "developer",
+  adminOrgId?: string
 ) => {
   // 1. Prevent self-deactivation
   if (id === requesterId && status === "inactive") {
     throw new AppError("You cannot deactivate your own account.", 400);
   }
 
-  // 2. Ensure the user belongs to the same org as the admin
-  const [membership] = await db
-    .select()
-    .from(orgMembers)
-    .where(and(eq(orgMembers.orgId, adminOrgId), eq(orgMembers.userId, id)));
+  // 2. Admin must check org membership; superadmin skips this check
+  if (requesterRole === "admin") {
+    if (!adminOrgId) throw new AppError("Admin has no organization", 403);
 
-  if (!membership) {
-    throw new AppError("You can only manage users within your own organization", 403);
+    const [membership] = await db
+      .select()
+      .from(orgMembers)
+      .where(and(eq(orgMembers.orgId, adminOrgId), eq(orgMembers.userId, id)));
+
+    if (!membership) {
+      throw new AppError("You can only manage users within your own organization", 403);
+    }
   }
 
   const [updated] = await db

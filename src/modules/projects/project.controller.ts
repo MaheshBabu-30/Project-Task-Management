@@ -5,6 +5,7 @@ import {
   updateProjectSchema,
   projectQuerySchema
 } from "./project.schema.js";
+import { uuidSchema } from "../../utils/schema.js";
 import {
   createProject,
   getProjects,
@@ -14,34 +15,66 @@ import {
 } from "./project.service.js";
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../utils/pagination.js";
+import { createAuditLog } from "../audit-logs/audit-log.service.js";
+
+const getIp = (c: Context) =>
+  c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? undefined;
 
 // ─── Create Project (ADMIN only) ──────────────────────────────────────────────
 
 export const createNewProject = async (c: Context) => {
   const user = c.get("user");
-
-  if (user.role !== "admin" && user.role !== "superadmin") {
-    return c.json({ message: "Only admins can create projects" }, 403);
-  }
-
   const body = await c.req.json();
   const data = parse(createProjectSchema, body);
 
   // 🏛️ Logic for Implicit vs Explicit Org Assignment
   // 1. If Superadmin: they MUST provide an orgId in the body
-  // 2. If Admin: we take orgId from their Token
-  const targetOrgId = user.role === "superadmin" ? (body.orgId as string) : user.orgId;
+  if (user.role === "superadmin") {
+    if (!body.orgId) return c.json({ message: "Organization ID is required" }, 400);
+    // Explicitly validate the body.orgId as a UUID
+    const targetOrgId = parse(uuidSchema("Organization ID"), body.orgId);
+    
+    const project = await createProject({
+      ...data,
+      orgId: targetOrgId,
+      createdBy: user.userId,
+      assignedUserIds: body.assignedUserIds,
+    });
 
-  if (!targetOrgId) {
-    return c.json({ message: "Organization ID is required" }, 400);
+    createAuditLog({
+      orgId: targetOrgId,
+      actorId: user.userId,
+      action: "project.created",
+      entityType: "project",
+      entityId: project.id,
+      after: project,
+      ipAddress: getIp(c),
+    }).catch(console.error);
+
+    return successResponse(c, project, 201);
+  }
+
+  // 2. If Admin: we take orgId from their Token (implicitly safe)
+  if (!user.orgId) {
+    return c.json({ message: "Organization affiliation missing" }, 400);
   }
 
   const project = await createProject({
     ...data,
-    orgId: targetOrgId,
+    orgId: user.orgId,
     createdBy: user.userId,
     assignedUserIds: body.assignedUserIds,
   });
+
+  createAuditLog({
+    orgId: user.orgId,
+    actorId: user.userId,
+    action: "project.created",
+    entityType: "project",
+    entityId: project.id,
+    after: project,
+    ipAddress: getIp(c),
+  }).catch(console.error);
 
   return successResponse(c, project, 201);
 };
@@ -77,7 +110,7 @@ export const getProjectsList = async (c: Context) => {
 
 export const getProjectDetails = async (c: Context) => {
   const user = c.get("user");
-  const id = c.req.param("id");
+  const id = parse(uuidSchema("Project ID"), c.req.param("id"));
 
   const project = await getProjectById(id, user);
   return successResponse(c, project);
@@ -87,16 +120,22 @@ export const getProjectDetails = async (c: Context) => {
 
 export const updateProjectDetails = async (c: Context) => {
   const user = c.get("user");
-
-  if (user.role !== "admin" && user.role !== "superadmin") {
-    return c.json({ message: "Only admins can update project details" }, 403);
-  }
-
-  const id = c.req.param("id");
+  const id = parse(uuidSchema("Project ID"), c.req.param("id"));
   const body = await c.req.json();
   const data = parse(updateProjectSchema, body);
 
   const updated = await updateProject(id, data, user.orgId);
+
+  createAuditLog({
+    orgId: user.orgId,
+    actorId: user.userId,
+    action: "project.updated",
+    entityType: "project",
+    entityId: id,
+    after: updated,
+    ipAddress: getIp(c),
+  }).catch(console.error);
+
   return successResponse(c, updated);
 };
 
@@ -104,12 +143,17 @@ export const updateProjectDetails = async (c: Context) => {
 
 export const deleteProjectRecord = async (c: Context) => {
   const user = c.get("user");
-
-  if (user.role !== "admin" && user.role !== "superadmin") {
-    return c.json({ message: "Only admins can archive projects" }, 403);
-  }
-
-  const id = c.req.param("id");
+  const id = parse(uuidSchema("Project ID"), c.req.param("id"));
   const result = await deleteProject(id, user.orgId);
+
+  createAuditLog({
+    orgId: user.orgId,
+    actorId: user.userId,
+    action: "project.deleted",
+    entityType: "project",
+    entityId: id,
+    ipAddress: getIp(c),
+  }).catch(console.error);
+
   return successResponse(c, result);
 };

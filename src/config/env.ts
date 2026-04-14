@@ -9,5 +9,7 @@ export const env = {
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "1h",
   REFRESH_TOKEN_SECRET: process.env.REFRESH_TOKEN_SECRET,
   REFRESH_TOKEN_EXPIRES_IN: process.env.REFRESH_TOKEN_EXPIRES_IN,
-  BREVO_API_KEY: process.env.BREVO_API_KEY
+  BREVO_API_KEY: process.env.BREVO_API_KEY,
+  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || "*",
+  OTP_SECRET: process.env.OTP_SECRET,
 };

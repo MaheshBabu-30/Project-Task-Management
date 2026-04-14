@@ -1,9 +1,36 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
-import { userQuerySchema, updateUserSchema, toggleUserStatusSchema } from "./user.schema.js";
-import { getUsers, updateUserStatus, updateUserProfile, getUserById } from "./user.service.js";
+import { userQuerySchema, updateUserSchema, toggleUserStatusSchema, createUserSchema } from "./user.schema.js";
+import { uuidSchema } from "../../utils/schema.js";
+import { getUsers, updateUserStatus, updateUserProfile, getUserById, createUser } from "./user.service.js";
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../utils/pagination.js";
+import { createAuditLog } from "../audit-logs/audit-log.service.js";
+
+const getIp = (c: Context) =>
+  c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? undefined;
+
+// ─── Create User (SUPERADMIN creates admin/developer, ADMIN creates developer) ─
+
+export const createNewUser = async (c: Context) => {
+  const requester = c.get("user");
+  const body = await c.req.json();
+  const data = parse(createUserSchema, body);
+
+  const result = await createUser(data, requester);
+
+  createAuditLog({
+    orgId: requester.orgId,
+    actorId: requester.userId,
+    action: "user.created",
+    entityType: "user",
+    entityId: result.id,
+    after: result,
+    ipAddress: getIp(c),
+  }).catch(console.error);
+
+  return successResponse(c, result, 201);
+};
 
 // ─── List Users (Scoped) ──────────────────────────────────────────────────────
 
@@ -36,16 +63,21 @@ export const getUsersList = async (c: Context) => {
 
 export const toggleUserStatus = async (c: Context) => {
   const admin = c.get("user");
-  const id = c.req.param("id");
+  const id = parse(uuidSchema("User ID"), c.req.param("id"));
   const body = await c.req.json();
   const { status } = parse(toggleUserStatusSchema, body);
+  const updated = await updateUserStatus(id, admin.userId, status, admin.role, admin.orgId);
 
-  if (admin.role !== "admin" && admin.role !== "superadmin") {
-    return c.json({ message: "Only admins can update user status" }, 403);
-  }
+  createAuditLog({
+    orgId: admin.orgId,
+    actorId: admin.userId,
+    action: "user.status_updated",
+    entityType: "user",
+    entityId: id,
+    after: { status },
+    ipAddress: getIp(c),
+  }).catch(console.error);
 
-  // Superadmin can update anyone; Admin needs their orgId to be checked in service
-  const updated = await updateUserStatus(id, admin.userId, status, admin.orgId);
   return successResponse(c, updated);
 };
 
@@ -64,7 +96,7 @@ export const updateMe = async (c: Context) => {
 
 export const getUserDetails = async (c: Context) => {
   const currentUser = c.get("user");
-  const id = c.req.param("id");
+  const id = parse(uuidSchema("User ID"), c.req.param("id"));
 
   const user = await getUserById(id, currentUser.orgId);
   return successResponse(c, user);

@@ -1,34 +1,41 @@
-import { object, string, optional, number, minValue, pipe, picklist, array, boolean } from "valibot";
+import { object, string, optional, number, minValue, pipe, picklist, array, boolean, uuid, minLength, maxLength, regex } from "valibot";
 
 export const createTaskSchema = object({
-  title: string("Task title is required"),
-  description: optional(string()),
-  priority: optional(picklist(["low", "medium", "high", "urgent"]), "medium"),
-  dueDate: optional(string()), // Receive as string (YYYY-MM-DD), parse in service
-  projectId: string("projectId is required"),
-  assignedUserIds: optional(array(string())) // Support multiple developers
+  title: pipe(string(), minLength(1, "Title is required"), maxLength(300, "Title must be at most 300 characters")),
+  description: optional(pipe(string(), maxLength(5000, "Description too long"))),
+  priority: optional(picklist(["low", "medium", "high", "urgent"] as const)),
+  dueDate: optional(pipe(string(), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"))),
+  projectId: pipe(string("projectId is required"), uuid("Invalid project ID")),
+  parentTaskId: optional(pipe(string(), uuid("Invalid parent task ID"))),
+  assignedUserIds: optional(array(pipe(string(), uuid()))),
 });
 
 export const updateTaskSchema = object({
-  title: optional(string()),
-  description: optional(string()),
-  priority: optional(picklist(["low", "medium", "high", "urgent"])),
-  dueDate: optional(string()),
-  projectId: optional(string()),
-  assignedUserIds: optional(array(string())),
-  status: optional(picklist(["to_do", "in_progress", "on_hold", "overdue", "completed"]))
+  title: optional(pipe(string(), minLength(1, "Title is required"), maxLength(300, "Title must be at most 300 characters"))),
+  description: optional(pipe(string(), maxLength(5000, "Description too long"))),
+  priority: optional(picklist(["low", "medium", "high", "urgent"] as const)),
+  dueDate: optional(pipe(string(), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"))),
+  assignedUserIds: optional(array(pipe(string(), uuid()))),
+  status: optional(picklist(["to_do", "in_progress", "on_hold", "completed"] as const)),
+  // projectId intentionally excluded — tasks cannot be moved between projects
+});
+
+// For PATCH /tasks/:id/status — developer + admin
+export const updateTaskStatusSchema = object({
+  status: picklist(["to_do", "in_progress", "on_hold", "completed"] as const, "Invalid status"),
 });
 
 export const taskQuerySchema = object({
-  id: optional(string()),
-  status: optional(picklist(["to_do", "in_progress", "on_hold", "overdue", "completed"])),
-  priority: optional(picklist(["low", "medium", "high", "urgent"])),
+  id: optional(pipe(string(), uuid())),
+  status: optional(picklist(["to_do", "in_progress", "on_hold", "overdue", "completed"] as const)),
+  priority: optional(picklist(["low", "medium", "high", "urgent"] as const)),
   search: optional(string()),
-  projectId: optional(string()),
-  assignedUserId: optional(string()),
+  projectId: optional(pipe(string(), uuid())),
+  parentTaskId: optional(pipe(string(), uuid())),
+  assignedUserId: optional(pipe(string(), uuid())),
   page: optional(pipe(number(), minValue(1))),
   limit: optional(pipe(number(), minValue(1))),
-  sortBy: optional(string()),
-  order: optional(string()),
-  showDeleted: optional(boolean())
+  sortBy: optional(picklist(["title", "status", "priority", "dueDate", "createdAt"] as const)),
+  order: optional(picklist(["asc", "desc"] as const)),
+  showDeleted: optional(boolean()),
 });

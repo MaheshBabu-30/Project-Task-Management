@@ -1,25 +1,26 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
-import { createTaskSchema, updateTaskSchema, taskQuerySchema } from "./task.schema.js";
+import { createTaskSchema, updateTaskSchema, taskQuerySchema, updateTaskStatusSchema } from "./task.schema.js";
+import { uuidSchema } from "../../utils/schema.js";
 import {
   createTask,
   updateTask,
+  updateTaskStatus,
   getTasks,
   getTaskById,
   softDeleteTask,
 } from "./task.service.js";
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../utils/pagination.js";
+import { createAuditLog } from "../audit-logs/audit-log.service.js";
+
+const getIp = (c: Context) =>
+  c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? undefined;
 
 // ─── Create Task (ADMIN only) ───────────────────────────────────────────────
 
 export const createNewTask = async (c: Context) => {
   const user = c.get("user");
-
-  if (user.role !== "admin" && user.role !== "superadmin") {
-    return c.json({ message: "Only admins can create tasks" }, 403);
-  }
-
   const body = await c.req.json();
   const data = parse(createTaskSchema, body);
 
@@ -27,6 +28,16 @@ export const createNewTask = async (c: Context) => {
     ...data,
     createdBy: user.userId,
   });
+
+  createAuditLog({
+    orgId: user.orgId,
+    actorId: user.userId,
+    action: "task.created",
+    entityType: "task",
+    entityId: task.id,
+    after: task,
+    ipAddress: getIp(c),
+  }).catch(console.error);
 
   return successResponse(c, task, 201);
 };
@@ -62,54 +73,73 @@ export const getTasksList = async (c: Context) => {
 
 export const getTaskDetails = async (c: Context) => {
   const user = c.get("user");
-  const id = c.req.param("id");
+  const id = parse(uuidSchema("Task ID"), c.req.param("id"));
 
   const task = await getTaskById(id, user);
   return successResponse(c, task);
 };
 
-// ─── Update Task ──────────────────────────────────────────────────────────────
+// ─── Update Task (ADMIN full update) ─────────────────────────────────────────
 
 export const updateTaskDetails = async (c: Context) => {
   const user = c.get("user");
-  const id = c.req.param("id");
+  const id = parse(uuidSchema("Task ID"), c.req.param("id"));
   const body = await c.req.json();
   const data = parse(updateTaskSchema, body);
 
-  // 1. Fetch task to check ownership/assignment
-  const task = await getTaskById(id, user);
+  const updated = await updateTask(id, data, user.orgId);
 
-  // 2. Role-based Logic
-  if (user.role === "admin" || user.role === "superadmin") {
-    // Admins can update everything
-    const updated = await updateTask(id, data, user.orgId);
-    return successResponse(c, updated);
-  }
+  createAuditLog({
+    orgId: user.orgId,
+    actorId: user.userId,
+    action: "task.updated",
+    entityType: "task",
+    entityId: id,
+    after: updated,
+    ipAddress: getIp(c),
+  }).catch(console.error);
 
-  if (user.role === "developer") {
-    // Developers can ONLY update status
-    const keys = Object.keys(data);
-    if (keys.length > 1 || (keys.length === 1 && !data.status)) {
-      return c.json({ message: "Developers can only update task status" }, 403);
-    }
+  return successResponse(c, updated);
+};
 
-    const updated = await updateTask(id, { status: data.status }, user.orgId);
-    return successResponse(c, updated);
-  }
+// ─── Update Task Status Only (ADMIN + DEVELOPER) ─────────────────────────────
 
-  return c.json({ message: "Forbidden" }, 403);
+export const updateTaskStatusOnly = async (c: Context) => {
+  const user = c.get("user");
+  const id = parse(uuidSchema("Task ID"), c.req.param("id"));
+  const body = await c.req.json();
+  const { status } = parse(updateTaskStatusSchema, body);
+
+  const updated = await updateTaskStatus(id, status, user);
+
+  createAuditLog({
+    orgId: user.orgId,
+    actorId: user.userId,
+    action: "task.status_updated",
+    entityType: "task",
+    entityId: id,
+    after: { status },
+    ipAddress: getIp(c),
+  }).catch(console.error);
+
+  return successResponse(c, updated);
 };
 
 // ─── Soft Delete Task (ADMIN only) ──────────────────────────────────────────
 
 export const deleteTaskRecord = async (c: Context) => {
   const user = c.get("user");
-  const id = c.req.param("id");
-
-  if (user.role !== "admin" && user.role !== "superadmin") {
-    return c.json({ message: "Only admins can archive tasks" }, 403);
-  }
-
+  const id = parse(uuidSchema("Task ID"), c.req.param("id"));
   const result = await softDeleteTask(id, user.orgId);
+
+  createAuditLog({
+    orgId: user.orgId,
+    actorId: user.userId,
+    action: "task.deleted",
+    entityType: "task",
+    entityId: id,
+    ipAddress: getIp(c),
+  }).catch(console.error);
+
   return successResponse(c, result);
 };

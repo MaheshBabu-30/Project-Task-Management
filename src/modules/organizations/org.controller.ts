@@ -1,6 +1,7 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
-import { createOrgSchema, addMemberSchema, registerAdminSchema, registerDeveloperSchema } from "./org.schema.js";
+import { createOrgSchema, addMemberSchema } from "./org.schema.js";
+import { uuidSchema } from "../../utils/schema.js";
 import {
   createOrganization,
   getAllOrganizations,
@@ -8,51 +9,53 @@ import {
   assignAdminToOrg,
   addDeveloperToOrg,
   removeMemberFromOrg,
-  registerAdminForOrg,
-  registerDeveloperForOrg,
+  softDeleteOrg,
 } from "./org.service.js";
 import { successResponse } from "../../utils/response.js";
+import { createAuditLog } from "../audit-logs/audit-log.service.js";
+import { createNotification } from "../notifications/notification.service.js";
+
+const getIp = (c: Context) =>
+  c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? undefined;
 
 // ─── Create Organization (SUPERADMIN only) ────────────────────────────────────
 
 export const createOrg = async (c: Context) => {
   const user = c.get("user");
-  if (user.role !== "superadmin") {
-    return c.json({ message: "Only superadmin can create organizations" }, 403);
-  }
-
   const body = await c.req.json();
   const data = parse(createOrgSchema, body);
   const org = await createOrganization(data);
+
+  if (org) {
+    createAuditLog({
+      actorId: user.userId,
+      action: "org.created",
+      entityType: "organization",
+      entityId: org.id,
+      after: org,
+      ipAddress: getIp(c),
+    }).catch(console.error);
+  }
+
   return successResponse(c, org, 201);
 };
 
 // ─── List All Organizations (SUPERADMIN only) ─────────────────────────────────
 
 export const listOrgs = async (c: Context) => {
-  const user = c.get("user");
-  if (user.role !== "superadmin") {
-    return c.json({ message: "Only superadmin can view all organizations" }, 403);
-  }
-
   const orgs = await getAllOrganizations();
   return successResponse(c, { organizations: orgs });
 };
 
-// ─── Get Organization Details ─────────────────────────────────────────────────
+// ─── Get Organization Details (SUPERADMIN + ADMIN own org) ───────────────────
 
 export const getOrgDetails = async (c: Context) => {
   const user = c.get("user");
-  const orgId = c.req.param("id");
+  const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
 
   // Admin can only see their own org
   if (user.role === "admin" && user.orgId !== orgId) {
     return c.json({ message: "Access denied to this organization" }, 403);
-  }
-
-  // Developers cannot view org details
-  if (user.role === "developer") {
-    return c.json({ message: "Access denied" }, 403);
   }
 
   const org = await getOrganizationById(orgId);
@@ -63,15 +66,22 @@ export const getOrgDetails = async (c: Context) => {
 
 export const assignAdmin = async (c: Context) => {
   const user = c.get("user");
-  if (user.role !== "superadmin") {
-    return c.json({ message: "Only superadmin can assign admins to organizations" }, 403);
-  }
-
-  const orgId = c.req.param("id");
+  const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
   const body = await c.req.json();
   const { userId } = parse(addMemberSchema, body);
 
   const result = await assignAdminToOrg(orgId, userId);
+
+  createAuditLog({
+    orgId,
+    actorId: user.userId,
+    action: "org.admin_assigned",
+    entityType: "organization",
+    entityId: orgId,
+    after: { userId },
+    ipAddress: getIp(c),
+  }).catch(console.error);
+
   return successResponse(c, result);
 };
 
@@ -79,74 +89,81 @@ export const assignAdmin = async (c: Context) => {
 
 export const addDeveloper = async (c: Context) => {
   const user = c.get("user");
-  if (user.role !== "admin") {
-    return c.json({ message: "Only admins can add developers to their organization" }, 403);
-  }
 
   if (!user.orgId) {
     return c.json({ message: "Admin is not assigned to an organization" }, 400);
   }
 
-  const orgId = c.req.param("id");
+  const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
   const body = await c.req.json();
   const { userId } = parse(addMemberSchema, body);
 
   const member = await addDeveloperToOrg(orgId, userId, user.orgId);
+
+  createAuditLog({
+    orgId,
+    actorId: user.userId,
+    action: "org.developer_added",
+    entityType: "organization",
+    entityId: orgId,
+    after: { userId },
+    ipAddress: getIp(c),
+  }).catch(console.error);
+
   return successResponse(c, member, 201);
 };
 
-// ─── Remove Member from Organization ─────────────────────────────────────────
+// ─── Soft Delete Organization (SUPERADMIN only) ───────────────────────────────
+
+export const deleteOrg = async (c: Context) => {
+  const user = c.get("user");
+  const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
+  const result = await softDeleteOrg(orgId, user.userId);
+
+  createAuditLog({
+    orgId,
+    actorId: user.userId,
+    action: "org.deleted",
+    entityType: "organization",
+    entityId: orgId,
+    ipAddress: getIp(c),
+  }).catch(console.error);
+
+  return successResponse(c, result);
+};
+
+// ─── Remove Member from Organization (SUPERADMIN + ADMIN own org) ────────────
 
 export const removeMember = async (c: Context) => {
   const user = c.get("user");
-  const orgId = c.req.param("id");
-  const userId = c.req.param("userId");
+  const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
+  const userId = parse(uuidSchema("User ID"), c.req.param("userId"));
 
-  // Superadmin can remove from any org; admin only from their own
+  // Admin can only remove from their own org
   if (user.role === "admin" && user.orgId !== orgId) {
     return c.json({ message: "Access denied to this organization" }, 403);
   }
 
-  if (user.role === "developer") {
-    return c.json({ message: "Access denied" }, 403);
-  }
-
   const result = await removeMemberFromOrg(orgId, userId);
+
+  createAuditLog({
+    orgId,
+    actorId: user.userId,
+    action: "org.member_removed",
+    entityType: "organization",
+    entityId: orgId,
+    after: { removedUserId: userId },
+    ipAddress: getIp(c),
+  }).catch(console.error);
+
+  createNotification({
+    userId,
+    type: "member_removed",
+    title: "You have been removed from an organization",
+    body: "You no longer have access to this organization's projects and tasks.",
+    entityType: "organization",
+    entityId: orgId,
+  }).catch(console.error);
+
   return successResponse(c, result);
-};
-
-// ─── Register & Assign Admin to Organization (SUPERADMIN only) ────────────────
-
-export const registerAdmin = async (c: Context) => {
-  const user = c.get("user");
-  if (user.role !== "superadmin") {
-    return c.json({ message: "Only superadmin can register admins" }, 403);
-  }
-
-  const orgId = c.req.param("id");
-  const body = await c.req.json();
-  const data = parse(registerAdminSchema, body);
-
-  const result = await registerAdminForOrg(orgId, data);
-  return successResponse(c, result, 201);
-};
-
-// ─── Register & Assign Developer to Organization (ADMIN only) ────────────────
-
-export const registerDeveloper = async (c: Context) => {
-  const user = c.get("user");
-  if (user.role !== "admin") {
-    return c.json({ message: "Only admins can register developers for their org" }, 403);
-  }
-
-  if (!user.orgId) {
-    return c.json({ message: "Admin is not assigned to an organization" }, 400);
-  }
-
-  const orgId = c.req.param("id");
-  const body = await c.req.json();
-  const data = parse(registerDeveloperSchema, body);
-
-  const result = await registerDeveloperForOrg(orgId, user.orgId, data);
-  return successResponse(c, result, 201);
 };

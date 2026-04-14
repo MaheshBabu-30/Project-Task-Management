@@ -1,28 +1,30 @@
-import { object, string, optional, number, minValue, pipe, boolean, picklist, array } from "valibot";
+import { object, string, optional, number, minValue, pipe, boolean, picklist, array, uuid, minLength, maxLength } from "valibot";
 
 export const createProjectSchema = object({
-  title: string("Project title is required"),
-  description: optional(string()),
-  logoUrl: optional(string()),
-  assignedUserIds: optional(array(string())), // Developers to assign during creation
+  title: pipe(string(), minLength(1, "Title is required"), maxLength(200, "Title must be at most 200 characters")),
+  description: optional(pipe(string(), maxLength(2000, "Description too long"))),
+  logoUrl: optional(pipe(string(), maxLength(500, "URL too long"))),
+  assignedUserIds: optional(array(pipe(string(), uuid()))),
 });
 
 export const updateProjectSchema = object({
-  title: optional(string()),
-  description: optional(string()),
-  logoUrl: optional(string()),
-  status: optional(picklist(["active", "on_hold", "completed"])),
-  assignedUserIds: optional(array(string())), // For bulk updating members
+  title: optional(pipe(string(), minLength(1, "Title is required"), maxLength(200, "Title must be at most 200 characters"))),
+  description: optional(pipe(string(), maxLength(2000, "Description too long"))),
+  logoUrl: optional(pipe(string(), maxLength(500, "URL too long"))),
+  // "completed" removed — project auto-completes when all tasks are done
+  status: optional(picklist(["active", "on_hold"] as const)),
+  assignedUserIds: optional(array(pipe(string(), uuid()))),
 });
 
 export const projectQuerySchema = object({
-  id: optional(string()),
+  id: optional(pipe(string(), uuid())),
+  orgId: optional(pipe(string(), uuid())),
   title: optional(string()),
-  createdBy: optional(string()),
-  status: optional(picklist(["active", "on_hold", "completed"])),
+  createdBy: optional(pipe(string(), uuid())),
+  status: optional(picklist(["active", "on_hold", "completed"] as const)),
   page: optional(pipe(number(), minValue(1, "Page must be >= 1"))),
   limit: optional(pipe(number(), minValue(1, "Limit must be >= 1"))),
-  sortBy: optional(string()),
-  order: optional(string()),
-  showDeleted: optional(boolean())
+  sortBy: optional(picklist(["title", "status", "createdAt"] as const)),
+  order: optional(picklist(["asc", "desc"] as const)),
+  showDeleted: optional(boolean()),
 });

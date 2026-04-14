@@ -1,7 +1,8 @@
 import { db } from "../../config/db.js";
 import { tasks, projects, taskAssignees, users } from "../../../drizzle/schema.js";
-import { eq, and, ilike, asc, desc, inArray, isNull, notInArray } from "drizzle-orm";
+import { eq, and, ilike, asc, desc, inArray, isNull, notInArray, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
+import { createNotification } from "../notifications/notification.service.js";
 
 interface TaskQuery {
   id?: string;
@@ -17,16 +18,27 @@ interface TaskQuery {
   showDeleted?: boolean;
 }
 
+// ─── Allowed Task Status Transitions ─────────────────────────────────────────
+
+const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+  to_do:       ["in_progress", "on_hold"],
+  in_progress: ["on_hold", "completed"],
+  on_hold:     ["in_progress", "to_do"],
+  completed:   ["in_progress"], // reopen — admin only
+  overdue:     ["in_progress", "on_hold"],
+};
+
 // ─── Helper: Update Project Status ───────────────────────────────────────────
 
 const updateProjectStatusIfComplete = async (tx: any, projectId: string) => {
-  // Check if all tasks in this project are completed
+  // Check if all ROOT tasks in this project are completed (subtasks don't count)
   const pendingTasks = await tx
     .select({ id: tasks.id })
     .from(tasks)
     .where(and(
       eq(tasks.projectId, projectId),
       isNull(tasks.deletedAt),
+      isNull(tasks.parentTaskId),
       notInArray(tasks.status, ["completed"])
     ));
 
@@ -49,14 +61,25 @@ export const createTask = async (data: {
   priority?: "low" | "medium" | "high" | "urgent";
   dueDate?: string;
   projectId: string;
+  parentTaskId?: string;
   createdBy: string;
   assignedUserIds?: string[];
 }) => {
   const { assignedUserIds, ...taskData } = data;
 
   return await db.transaction(async (tx) => {
-    // 1. Verify Project belongs to user's org (checked in controller)
-    
+    // 1. Subtask validation
+    if (taskData.parentTaskId) {
+      const [parent] = await tx
+        .select({ id: tasks.id, projectId: tasks.projectId, parentTaskId: tasks.parentTaskId })
+        .from(tasks)
+        .where(and(eq(tasks.id, taskData.parentTaskId), isNull(tasks.deletedAt)));
+
+      if (!parent) throw new AppError("Parent task not found", 404);
+      if (parent.projectId !== taskData.projectId) throw new AppError("Subtask must belong to the same project as its parent", 400);
+      if (parent.parentTaskId) throw new AppError("Cannot create a subtask of a subtask. Max 1 level deep.", 400);
+    }
+
     // 2. Insert Task
     const [task] = await tx
       .insert(tasks)
@@ -75,6 +98,18 @@ export const createTask = async (data: {
         userId: userId,
       }));
       await tx.insert(taskAssignees).values(assignEntries);
+
+      // Notify each assigned user (fire-and-forget)
+      for (const userId of assignedUserIds) {
+        createNotification({
+          userId,
+          type: "task_assigned",
+          title: "You have been assigned a task",
+          body: `You were assigned to: "${task.title}"`,
+          entityType: "task",
+          entityId: task.id,
+        }).catch(console.error);
+      }
     }
 
     // 4. Update project status (new task means project might no longer be 'completed')
@@ -93,8 +128,16 @@ export const getTasks = async (
   user: { userId: string; role: string; orgId?: string }
 ) => {
   const { id, status, priority, search, projectId, assignedUserId, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
+  const parentTaskId = (query as any).parentTaskId;
 
   const filters = [showDeleted ? notInArray(tasks.deletedAt, [null as any]) : isNull(tasks.deletedAt)];
+
+  // By default return only root tasks; if parentTaskId provided, return subtasks of that task
+  if (parentTaskId) {
+    filters.push(eq(tasks.parentTaskId, parentTaskId));
+  } else if (!id) {
+    filters.push(isNull(tasks.parentTaskId));
+  }
 
   // 1. Scoping by Org (via Project Join)
   if (user.role !== "superadmin") {
@@ -191,12 +234,12 @@ export const getTasks = async (
     assignees: assigneesMap[task.id] || [],
   }));
 
-  const totalResult = await db
-    .select({ count: tasks.id })
+  const countResult = await db
+    .select({ total: count() })
     .from(tasks)
     .where(whereCondition);
 
-  return { data: dataWithAssignees, totalRecords: totalResult.length };
+  return { data: dataWithAssignees, totalRecords: countResult[0]?.total ?? 0 };
 };
 
 // ─── Get Task By ID ───────────────────────────────────────────────────────────
@@ -242,7 +285,15 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
     .innerJoin(users, eq(taskAssignees.userId, users.id))
     .where(eq(taskAssignees.taskId, id));
 
-  return { ...task, assignees };
+  // 3. Fetch subtasks (only for root tasks)
+  const subtasks = task.parentTaskId
+    ? []
+    : await db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.parentTaskId, id), isNull(tasks.deletedAt)));
+
+  return { ...task, assignees, subtasks };
 };
 
 // ─── Update Task ──────────────────────────────────────────────────────────────
@@ -253,14 +304,22 @@ export const updateTask = async (id: string, data: any, orgId: string) => {
   return await db.transaction(async (tx) => {
     // 1. Check if task belongs to org
     const [task] = await tx
-      .select({ projectId: tasks.projectId })
+      .select({ projectId: tasks.projectId, status: tasks.status })
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
       .where(and(eq(tasks.id, id), eq(projects.orgId, orgId), isNull(tasks.deletedAt)));
 
     if (!task) throw new AppError("Task not found or access denied", 404);
 
-    // 2. Update Task
+    // 2. Enforce status transition rules
+    if (data.status && data.status !== task.status) {
+      const allowed = ALLOWED_TRANSITIONS[task.status] ?? [];
+      if (!allowed.includes(data.status)) {
+        throw new AppError(`Cannot transition from "${task.status}" to "${data.status}"`, 400);
+      }
+    }
+
+    // 3. Update Task
     const preparedData = { ...updateData };
     if (data.dueDate) preparedData.dueDate = data.dueDate;
     preparedData.updatedAt = new Date();
@@ -282,6 +341,18 @@ export const updateTask = async (id: string, data: any, orgId: string) => {
           userId: userId,
         }));
         await tx.insert(taskAssignees).values(assignEntries);
+
+        // Notify newly assigned users (fire-and-forget)
+        for (const userId of assignedUserIds) {
+          createNotification({
+            userId,
+            type: "task_assigned",
+            title: "You have been assigned a task",
+            body: `You were assigned to: "${updated.title}"`,
+            entityType: "task",
+            entityId: id,
+          }).catch(console.error);
+        }
       }
     }
 
@@ -294,11 +365,87 @@ export const updateTask = async (id: string, data: any, orgId: string) => {
   });
 };
 
+// ─── Update Task Status Only (Developer + Admin) ─────────────────────────────
+
+export const updateTaskStatus = async (
+  id: string,
+  newStatus: string,
+  user: { userId: string; role: string; orgId?: string }
+) => {
+  return await db.transaction(async (tx) => {
+    // Build scope filter
+    let taskQuery;
+    if (user.role === "superadmin") {
+      taskQuery = await tx
+        .select({ projectId: tasks.projectId, status: tasks.status })
+        .from(tasks)
+        .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
+    } else {
+      if (!user.orgId) throw new AppError("No organization assigned", 403);
+      taskQuery = await tx
+        .select({ projectId: tasks.projectId, status: tasks.status })
+        .from(tasks)
+        .innerJoin(projects, eq(tasks.projectId, projects.id))
+        .where(and(eq(tasks.id, id), eq(projects.orgId, user.orgId), isNull(tasks.deletedAt)));
+    }
+
+    const [task] = taskQuery;
+    if (!task) throw new AppError("Task not found or access denied", 404);
+
+    // Developer must be assigned to the task
+    if (user.role === "developer") {
+      const [assigned] = await tx
+        .select()
+        .from(taskAssignees)
+        .where(and(eq(taskAssignees.taskId, id), eq(taskAssignees.userId, user.userId)));
+      if (!assigned) throw new AppError("Access denied. Task not assigned to you.", 403);
+    }
+
+    // Enforce transition rules
+    const allowed = ALLOWED_TRANSITIONS[task.status] ?? [];
+    if (!allowed.includes(newStatus)) {
+      throw new AppError(`Cannot transition from "${task.status}" to "${newStatus}"`, 400);
+    }
+
+    const completedAt = newStatus === "completed" ? new Date() : null;
+
+    const [updated] = await tx
+      .update(tasks)
+      .set({ status: newStatus as any, completedAt, updatedAt: new Date() })
+      .where(eq(tasks.id, id))
+      .returning();
+
+    await updateProjectStatusIfComplete(tx, task.projectId);
+
+    // Notify all assignees when a task is marked completed (fire-and-forget)
+    if (newStatus === "completed" && updated) {
+      db.select({ userId: taskAssignees.userId })
+        .from(taskAssignees)
+        .where(eq(taskAssignees.taskId, id))
+        .then((assignees) => {
+          for (const assignee of assignees) {
+            createNotification({
+              userId: assignee.userId,
+              type: "task_completed",
+              title: "Task marked as completed",
+              body: `"${updated.title}" has been marked as completed.`,
+              entityType: "task",
+              entityId: id,
+            }).catch(console.error);
+          }
+        })
+        .catch(console.error);
+    }
+
+    return updated;
+  });
+};
+
 // ─── Soft Delete Task ────────────────────────────────────────────────────────
 
 export const softDeleteTask = async (id: string, orgId: string) => {
   const [task] = await db
-    .select({ id: tasks.id, status: tasks.status, projectId: tasks.projectId })
+    .select({ id: tasks.id, status: tasks.status, projectId: tasks.projectId, parentTaskId: tasks.parentTaskId })
     .from(tasks)
     .innerJoin(projects, eq(tasks.projectId, projects.id))
     .where(and(eq(tasks.id, id), eq(projects.orgId, orgId), isNull(tasks.deletedAt)));
@@ -311,6 +458,8 @@ export const softDeleteTask = async (id: string, orgId: string) => {
 
   await db.transaction(async (tx) => {
     await tx.update(tasks).set({ deletedAt: new Date() }).where(eq(tasks.id, id));
+    // Cascade soft delete all subtasks of this task
+    await tx.update(tasks).set({ deletedAt: new Date() }).where(eq(tasks.parentTaskId, id));
     await updateProjectStatusIfComplete(tx, task.projectId);
   });
 

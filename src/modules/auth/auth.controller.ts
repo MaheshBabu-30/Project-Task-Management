@@ -1,7 +1,7 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
-import { registerSchema, loginSchema, requestOtpSchema, verifyOtpSchema } from "./auth.schema.js";
-import { registerUser, loginUser, refreshSession, requestOtp, verifyOtp, logoutUser } from "./auth.service.js";
+import { loginSchema, requestOtpSchema, verifyOtpSchema } from "./auth.schema.js";
+import { loginUser, refreshSession, requestOtp, verifyOtp, logoutUser } from "./auth.service.js";
 import { successResponse } from "../../utils/response.js";
 import { AppError } from "../../utils/errors.js";
 
@@ -16,16 +16,6 @@ export const logoutUserAccount = async (c: Context) => {
   await logoutUser(user.userId, refreshToken);
 
   return successResponse(c, { message: "Successfully logged out" });
-};
-
-
-export const registerUserAccount = async (c: Context) => {
-  const body = await c.req.json();
-  const data = parse(registerSchema, body);
-
-  const result = await registerUser(data as any);
-
-  return successResponse(c, result, 201);
 };
 
 export const loginUserAccount = async (c: Context) => {
