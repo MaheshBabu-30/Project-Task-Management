@@ -15,6 +15,8 @@ export const listComments = async (c: Context) => {
     ...rawQuery,
     page: rawQuery.page ? Number(rawQuery.page) : 1,
     limit: rawQuery.limit ? Number(rawQuery.limit) : 20,
+    order: rawQuery.order,
+    authorId: rawQuery.authorId,
   });
 
   const { data, totalRecords } = await getComments(taskId, user, query);

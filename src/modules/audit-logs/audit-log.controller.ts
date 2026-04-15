@@ -13,6 +13,8 @@ export const listAuditLogs = async (c: Context) => {
     ...rawQuery,
     page: rawQuery.page ? Number(rawQuery.page) : 1,
     limit: rawQuery.limit ? Number(rawQuery.limit) : 20,
+    sortBy: rawQuery.sortBy,
+    order: rawQuery.order,
   });
 
   // Admin is always scoped to their own org

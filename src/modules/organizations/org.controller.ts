@@ -1,6 +1,7 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
-import { createOrgSchema, addMemberSchema } from "./org.schema.js";
+import { createOrgSchema, addMemberSchema, orgQuerySchema } from "./org.schema.js";
+import { buildPagination } from "../../utils/pagination.js";
 import { uuidSchema } from "../../utils/schema.js";
 import {
   createOrganization,
@@ -43,8 +44,23 @@ export const createOrg = async (c: Context) => {
 // ─── List All Organizations (SUPERADMIN only) ─────────────────────────────────
 
 export const listOrgs = async (c: Context) => {
-  const orgs = await getAllOrganizations();
-  return successResponse(c, { organizations: orgs });
+  const rawQuery = c.req.query();
+
+  const query = parse(orgQuerySchema, {
+    ...rawQuery,
+    page: rawQuery.page ? Number(rawQuery.page) : undefined,
+    limit: rawQuery.limit ? Number(rawQuery.limit) : undefined,
+  });
+
+  const { data, totalRecords } = await getAllOrganizations(query);
+
+  const pagination = buildPagination({
+    page: query.page ?? 1,
+    limit: query.limit ?? 20,
+    totalRecords,
+  });
+
+  return successResponse(c, { organizations: data, pagination });
 };
 
 // ─── Get Organization Details (SUPERADMIN + ADMIN own org) ───────────────────

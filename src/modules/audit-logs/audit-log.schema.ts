@@ -1,4 +1,4 @@
-import { object, optional, string, number, pipe, picklist, uuid, minValue, maxValue, regex, check } from "valibot";
+import { object, optional, string, number, pipe, picklist, uuid, minValue, maxValue, regex, check, literal, union } from "valibot";
 
 const AUDIT_ACTIONS = [
   "org.created", "org.deleted", "org.admin_assigned", "org.developer_added", "org.member_removed",
@@ -16,4 +16,6 @@ export const auditLogQuerySchema = object({
   action: optional(picklist(AUDIT_ACTIONS, "Invalid action value")),
   from: optional(pipe(string(), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"), check((v) => !isNaN(Date.parse(v)), "Invalid from date"))),
   to: optional(pipe(string(), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"), check((v) => !isNaN(Date.parse(v)), "Invalid to date"))),
+  sortBy: optional(picklist(["createdAt", "action", "entityType"] as const)),
+  order: optional(picklist(["asc", "desc"] as const)),
 });

@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { notifications } from "../../../drizzle/schema.js";
-import { eq, and, isNull, desc, count } from "drizzle-orm";
+import { eq, and, isNull, asc, desc, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
 // ─── Create Notification (internal helper) ────────────────────────────────────
@@ -21,22 +21,24 @@ export const createNotification = async (data: {
 
 export const getNotifications = async (
   userId: string,
-  query: { page?: number; limit?: number; unread?: boolean }
+  query: { page?: number; limit?: number; unread?: boolean; type?: string; order?: string }
 ) => {
-  const { page = 1, limit = 20, unread } = query;
+  const { page = 1, limit = 20, unread, type, order = "desc" } = query;
   const offset = (page - 1) * limit;
 
   const filters = [eq(notifications.userId, userId)];
   if (unread === true) filters.push(isNull(notifications.readAt));
+  if (type) filters.push(eq(notifications.type, type as any));
 
   const whereCondition = and(...filters);
+  const orderDirection = order === "asc" ? asc(notifications.createdAt) : desc(notifications.createdAt);
 
   const [data, countResult] = await Promise.all([
     db
       .select()
       .from(notifications)
       .where(whereCondition)
-      .orderBy(desc(notifications.createdAt))
+      .orderBy(orderDirection)
       .limit(limit)
       .offset(offset),
     db.select({ total: count() }).from(notifications).where(whereCondition),

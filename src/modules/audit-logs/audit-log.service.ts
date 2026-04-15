@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { auditLogs } from "../../../drizzle/schema.js";
-import { eq, and, gte, lte, ilike, desc, count } from "drizzle-orm";
+import { eq, and, gte, lte, ilike, asc, desc, count } from "drizzle-orm";
 
 // ─── Create Audit Log (internal helper) ──────────────────────────────────────
 
@@ -33,10 +33,12 @@ export const getAuditLogs = async (
     action?: string;
     from?: string;
     to?: string;
+    sortBy?: string;
+    order?: string;
   },
   scopedOrgId?: string  // set for admin — restricts to their org
 ) => {
-  const { page = 1, limit = 20, orgId, actorId, entityType, action, from, to } = query;
+  const { page = 1, limit = 20, orgId, actorId, entityType, action, from, to, sortBy = "createdAt", order = "desc" } = query;
   const offset = (page - 1) * limit;
 
   const filters: any[] = [];
@@ -53,12 +55,20 @@ export const getAuditLogs = async (
 
   const whereCondition = filters.length > 0 ? and(...filters) : undefined;
 
+  const validColumns: Record<string, any> = {
+    createdAt: auditLogs.createdAt,
+    action: auditLogs.action,
+    entityType: auditLogs.entityType,
+  };
+  const orderColumn = validColumns[sortBy] ?? auditLogs.createdAt;
+  const orderDirection = order === "asc" ? asc(orderColumn) : desc(orderColumn);
+
   const [data, countResult] = await Promise.all([
     db
       .select()
       .from(auditLogs)
       .where(whereCondition)
-      .orderBy(desc(auditLogs.createdAt))
+      .orderBy(orderDirection)
       .limit(limit)
       .offset(offset),
     db.select({ total: count() }).from(auditLogs).where(whereCondition),

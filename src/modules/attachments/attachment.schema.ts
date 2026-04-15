@@ -1,4 +1,4 @@
-import { object, string, number, pipe, minLength, maxLength, minValue, maxValue, regex, picklist } from "valibot";
+import { object, string, number, optional, pipe, minLength, maxLength, minValue, maxValue, regex, picklist, uuid } from "valibot";
 
 const ALLOWED_MIME_TYPES = [
   "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml",
@@ -9,6 +9,15 @@ const ALLOWED_MIME_TYPES = [
   "text/plain", "text/csv",
   "application/zip", "application/x-zip-compressed",
 ] as const;
+
+export const attachmentQuerySchema = object({
+  page: optional(pipe(number(), minValue(1, "Page must be >= 1"), maxValue(10000, "Page must be <= 10000"))),
+  limit: optional(pipe(number(), minValue(1, "Limit must be >= 1"), maxValue(100, "Limit must be <= 100"))),
+  uploadedBy: optional(pipe(string(), uuid("Invalid user ID format"))),
+  mimeType: optional(pipe(string(), minLength(1), maxLength(100))),
+  sortBy: optional(picklist(["id", "fileName", "fileSize", "createdAt"] as const)),
+  order: optional(picklist(["asc", "desc"] as const)),
+});
 
 export const createAttachmentSchema = object({
   s3Key: pipe(string(), minLength(1, "S3 key is required"), maxLength(500, "S3 key too long"), regex(/^[a-zA-Z0-9!_.*'()\-/]+$/, "S3 key contains invalid characters")),

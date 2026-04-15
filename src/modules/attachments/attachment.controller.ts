@@ -1,17 +1,32 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
-import { createAttachmentSchema } from "./attachment.schema.js";
+import { createAttachmentSchema, attachmentQuerySchema } from "./attachment.schema.js";
 import { uuidSchema } from "../../utils/schema.js";
 import { getAttachments, linkAttachment, removeAttachment, getAttachmentById } from "./attachment.service.js";
 import { generatePresignedDownloadUrl } from "../uploads/upload.service.js";
 import { successResponse } from "../../utils/response.js";
+import { buildPagination } from "../../utils/pagination.js";
 
 export const listAttachments = async (c: Context) => {
   const user = c.get("user");
   const taskId = parse(uuidSchema("Task ID"), c.req.param("taskId"));
+  const rawQuery = c.req.query();
 
-  const data = await getAttachments(taskId, user);
-  return successResponse(c, { attachments: data });
+  const query = parse(attachmentQuerySchema, {
+    ...rawQuery,
+    page: rawQuery.page ? Number(rawQuery.page) : undefined,
+    limit: rawQuery.limit ? Number(rawQuery.limit) : undefined,
+  });
+
+  const { data, totalRecords } = await getAttachments(taskId, user, query);
+
+  const pagination = buildPagination({
+    page: query.page ?? 1,
+    limit: query.limit ?? 20,
+    totalRecords,
+  });
+
+  return successResponse(c, { attachments: data, pagination });
 };
 
 export const addAttachment = async (c: Context) => {

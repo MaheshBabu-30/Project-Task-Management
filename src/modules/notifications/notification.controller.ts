@@ -15,6 +15,8 @@ export const listNotifications = async (c: Context) => {
     page: rawQuery.page ? Number(rawQuery.page) : 1,
     limit: rawQuery.limit ? Number(rawQuery.limit) : 20,
     unread: rawQuery.unread === "true" ? true : rawQuery.unread === "false" ? false : undefined,
+    type: rawQuery.type,
+    order: rawQuery.order,
   });
 
   const { data, totalRecords } = await getNotifications(user.userId, query);

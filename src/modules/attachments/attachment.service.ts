@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { attachments, tasks, projects, taskAssignees } from "../../../drizzle/schema.js";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, ilike, asc, desc, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { s3Client, B2_BUCKET_NAME } from "../../config/s3.js";
@@ -54,14 +54,37 @@ export const getAttachmentById = async (attachmentId: string, taskId: string, us
 
 // ─── List Attachments ─────────────────────────────────────────────────────────
 
-export const getAttachments = async (taskId: string, user: User) => {
+export const getAttachments = async (
+  taskId: string,
+  user: User,
+  query?: { page?: number; limit?: number; uploadedBy?: string; mimeType?: string; sortBy?: string; order?: string }
+) => {
   await verifyTaskAccess(taskId, user);
 
-  return await db
-    .select()
-    .from(attachments)
-    .where(eq(attachments.taskId, taskId))
-    .orderBy(attachments.createdAt);
+  const { page = 1, limit = 20, uploadedBy, mimeType, sortBy = "createdAt", order = "asc" } = query ?? {};
+  const offset = (page - 1) * limit;
+
+  const conditions = [eq(attachments.taskId, taskId)];
+  if (uploadedBy) conditions.push(eq(attachments.uploadedBy, uploadedBy));
+  if (mimeType) conditions.push(ilike(attachments.mimeType, `%${mimeType}%`));
+
+  const whereCondition = and(...conditions);
+
+  const validColumns: Record<string, any> = {
+    id: attachments.id,
+    fileName: attachments.fileName,
+    fileSize: attachments.fileSize,
+    createdAt: attachments.createdAt,
+  };
+  const orderColumn = validColumns[sortBy] ?? attachments.createdAt;
+  const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
+
+  const [data, countResult] = await Promise.all([
+    db.select().from(attachments).where(whereCondition).orderBy(orderDirection).limit(limit).offset(offset),
+    db.select({ total: count() }).from(attachments).where(whereCondition),
+  ]);
+
+  return { data, totalRecords: countResult[0]?.total ?? 0 };
 };
 
 // ─── Link Attachment to Task ──────────────────────────────────────────────────

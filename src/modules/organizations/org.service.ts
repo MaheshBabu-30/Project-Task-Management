@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { organizations, orgMembers, users, projects, projectMembers, taskAssignees, tasks, sessions } from "../../../drizzle/schema.js";
-import { eq, and, isNull, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, isNull, inArray, ilike, asc, desc, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
 // ─── Create Organization ──────────────────────────────────────────────────────
@@ -29,19 +29,50 @@ export const createOrganization = async (data: {
 
 // ─── Get All Organizations (SUPERADMIN) ───────────────────────────────────────
 
-export const getAllOrganizations = async () => {
-  const orgs = await db
-    .select({
-      id: organizations.id,
-      name: organizations.name,
-      slug: organizations.slug,
-      ownerId: organizations.ownerId,
-      createdAt: organizations.createdAt,
-    })
-    .from(organizations)
-    .where(isNull(organizations.deletedAt));
+export const getAllOrganizations = async (query?: {
+  name?: string;
+  slug?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  order?: string;
+}) => {
+  const { name, slug, page = 1, limit = 20, sortBy = "createdAt", order = "asc" } = query ?? {};
+  const offset = (page - 1) * limit;
 
-  return orgs;
+  const conditions = [isNull(organizations.deletedAt)];
+  if (name) conditions.push(ilike(organizations.name, `%${name}%`));
+  if (slug) conditions.push(ilike(organizations.slug, `%${slug}%`));
+
+  const whereCondition = and(...conditions);
+
+  const validColumns: Record<string, any> = {
+    id: organizations.id,
+    name: organizations.name,
+    slug: organizations.slug,
+    createdAt: organizations.createdAt,
+  };
+  const orderColumn = validColumns[sortBy] ?? organizations.createdAt;
+  const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
+
+  const [orgs, countResult] = await Promise.all([
+    db
+      .select({
+        id: organizations.id,
+        name: organizations.name,
+        slug: organizations.slug,
+        ownerId: organizations.ownerId,
+        createdAt: organizations.createdAt,
+      })
+      .from(organizations)
+      .where(whereCondition)
+      .orderBy(orderDirection)
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: count() }).from(organizations).where(whereCondition),
+  ]);
+
+  return { data: orgs, totalRecords: countResult[0]?.total ?? 0 };
 };
 
 // ─── Get Organization By ID ───────────────────────────────────────────────────

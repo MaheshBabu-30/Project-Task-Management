@@ -43,14 +43,17 @@ const verifyTaskAccess = async (taskId: string, user: User) => {
 export const getComments = async (
   taskId: string,
   user: User,
-  query: { page?: number; limit?: number; order?: string }
+  query: { page?: number; limit?: number; order?: string; authorId?: string }
 ) => {
   await verifyTaskAccess(taskId, user);
 
-  const { page = 1, limit = 20, order = "asc" } = query;
+  const { page = 1, limit = 20, order = "asc", authorId } = query;
   const offset = (page - 1) * limit;
 
-  const whereCondition = and(eq(comments.taskId, taskId), isNull(comments.deletedAt));
+  const conditions = [eq(comments.taskId, taskId), isNull(comments.deletedAt)];
+  if (authorId) conditions.push(eq(comments.authorId, authorId));
+
+  const whereCondition = and(...conditions);
 
   const [data, countResult] = await Promise.all([
     db
