@@ -1,4 +1,4 @@
-import { object, string, optional, number, minValue, pipe, boolean, picklist, array, uuid, minLength, maxLength } from "valibot";
+import { object, string, optional, number, minValue, maxValue, pipe, boolean, picklist, array, uuid, minLength, maxLength } from "valibot";
 
 export const createProjectSchema = object({
   title: pipe(string(), minLength(1, "Title is required"), maxLength(200, "Title must be at most 200 characters")),
@@ -23,7 +23,7 @@ export const projectQuerySchema = object({
   createdBy: optional(pipe(string(), uuid())),
   status: optional(picklist(["active", "on_hold", "completed"] as const)),
   page: optional(pipe(number(), minValue(1, "Page must be >= 1"))),
-  limit: optional(pipe(number(), minValue(1, "Limit must be >= 1"))),
+  limit: optional(pipe(number(), minValue(1, "Limit must be >= 1"), maxValue(100, "Limit must be <= 100"))),
   sortBy: optional(picklist(["title", "status", "createdAt"] as const)),
   order: optional(picklist(["asc", "desc"] as const)),
   showDeleted: optional(boolean()),

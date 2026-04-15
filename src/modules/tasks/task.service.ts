@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
-import { tasks, projects, taskAssignees, users } from "../../../drizzle/schema.js";
-import { eq, and, ilike, asc, desc, inArray, isNull, notInArray, count } from "drizzle-orm";
+import { tasks, projects, taskAssignees, projectMembers, orgMembers, users } from "../../../drizzle/schema.js";
+import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 import { createNotification } from "../notifications/notification.service.js";
 
@@ -64,11 +64,23 @@ export const createTask = async (data: {
   parentTaskId?: string;
   createdBy: string;
   assignedUserIds?: string[];
+  requesterOrgId?: string;
 }) => {
-  const { assignedUserIds, ...taskData } = data;
+  const { assignedUserIds, requesterOrgId, ...taskData } = data;
 
-  return await db.transaction(async (tx) => {
-    // 1. Subtask validation
+  const newTask = await db.transaction(async (tx) => {
+    // 1. Validate project belongs to requester's org (skipped for superadmin)
+    if (requesterOrgId) {
+      const [project] = await tx
+        .select({ orgId: projects.orgId })
+        .from(projects)
+        .where(and(eq(projects.id, taskData.projectId), isNull(projects.deletedAt)));
+
+      if (!project) throw new AppError("Project not found", 404);
+      if (project.orgId !== requesterOrgId) throw new AppError("Project does not belong to your organization", 403);
+    }
+
+    // 3. Subtask validation
     if (taskData.parentTaskId) {
       const [parent] = await tx
         .select({ id: tasks.id, projectId: tasks.projectId, parentTaskId: tasks.parentTaskId })
@@ -93,11 +105,37 @@ export const createTask = async (data: {
 
     // 3. Assign Developers
     if (assignedUserIds && assignedUserIds.length > 0) {
+      const [project] = await tx
+        .select({ orgId: projects.orgId })
+        .from(projects)
+        .where(eq(projects.id, taskData.projectId));
+
+      if (project) {
+        const validMembers = await tx
+          .select({ userId: orgMembers.userId })
+          .from(orgMembers)
+          .where(and(
+            eq(orgMembers.orgId, project.orgId),
+            inArray(orgMembers.userId, assignedUserIds),
+            eq(orgMembers.role, "developer")
+          ));
+
+        if (validMembers.length !== assignedUserIds.length) {
+          throw new AppError("One or more assigned users are not developers in this organization", 400);
+        }
+      }
+
       const assignEntries = assignedUserIds.map((userId) => ({
         taskId: task.id,
-        userId: userId,
+        userId,
       }));
       await tx.insert(taskAssignees).values(assignEntries);
+
+      // Auto-add assignees to projectMembers so they can view the project
+      await tx
+        .insert(projectMembers)
+        .values(assignedUserIds.map((userId) => ({ projectId: taskData.projectId, userId })))
+        .onConflictDoNothing();
 
       // Notify each assigned user (fire-and-forget)
       for (const userId of assignedUserIds) {
@@ -119,6 +157,15 @@ export const createTask = async (data: {
 
     return task;
   });
+
+  // Fetch assignees with user info to return consistent shape
+  const assignees = await db
+    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+    .from(taskAssignees)
+    .innerJoin(users, eq(taskAssignees.userId, users.id))
+    .where(eq(taskAssignees.taskId, newTask.id));
+
+  return { ...newTask, assignees };
 };
 
 // ─── Get Tasks (Scoped) ───────────────────────────────────────────────────────
@@ -130,7 +177,7 @@ export const getTasks = async (
   const { id, status, priority, search, projectId, assignedUserId, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
   const parentTaskId = (query as any).parentTaskId;
 
-  const filters = [showDeleted ? notInArray(tasks.deletedAt, [null as any]) : isNull(tasks.deletedAt)];
+  const filters = [showDeleted ? isNotNull(tasks.deletedAt) : isNull(tasks.deletedAt)];
 
   // By default return only root tasks; if parentTaskId provided, return subtasks of that task
   if (parentTaskId) {
@@ -298,16 +345,21 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
 
 // ─── Update Task ──────────────────────────────────────────────────────────────
 
-export const updateTask = async (id: string, data: any, orgId: string) => {
+export const updateTask = async (id: string, data: any, orgId?: string) => {
   const { assignedUserIds, ...updateData } = data;
 
-  return await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     // 1. Check if task belongs to org
-    const [task] = await tx
-      .select({ projectId: tasks.projectId, status: tasks.status })
-      .from(tasks)
-      .innerJoin(projects, eq(tasks.projectId, projects.id))
-      .where(and(eq(tasks.id, id), eq(projects.orgId, orgId), isNull(tasks.deletedAt)));
+    const [task] = orgId
+      ? await tx
+          .select({ projectId: tasks.projectId, status: tasks.status })
+          .from(tasks)
+          .innerJoin(projects, eq(tasks.projectId, projects.id))
+          .where(and(eq(tasks.id, id), eq(projects.orgId, orgId), isNull(tasks.deletedAt)))
+      : await tx
+          .select({ projectId: tasks.projectId, status: tasks.status })
+          .from(tasks)
+          .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
 
     if (!task) throw new AppError("Task not found or access denied", 404);
 
@@ -320,9 +372,16 @@ export const updateTask = async (id: string, data: any, orgId: string) => {
     }
 
     // 3. Update Task
-    const preparedData = { ...updateData };
+    const preparedData: any = { ...updateData };
     if (data.dueDate) preparedData.dueDate = data.dueDate;
     preparedData.updatedAt = new Date();
+
+    // Set completedAt when transitioning to/from completed
+    if (data.status === "completed" && task.status !== "completed") {
+      preparedData.completedAt = new Date();
+    } else if (data.status && data.status !== "completed" && task.status === "completed") {
+      preparedData.completedAt = null;
+    }
 
     const [updated] = await tx
       .update(tasks)
@@ -334,13 +393,42 @@ export const updateTask = async (id: string, data: any, orgId: string) => {
 
     // 3. Sync Assignees
     if (assignedUserIds) {
+      if (assignedUserIds.length === 0) {
+        throw new AppError("assignedUserIds cannot be empty. Omit the field to keep current assignees.", 400);
+      }
       await tx.delete(taskAssignees).where(eq(taskAssignees.taskId, id));
       if (assignedUserIds.length > 0) {
+        const [proj] = await tx
+          .select({ orgId: projects.orgId })
+          .from(projects)
+          .where(eq(projects.id, task.projectId));
+
+        if (proj) {
+          const validMembers = await tx
+            .select({ userId: orgMembers.userId })
+            .from(orgMembers)
+            .where(and(
+              eq(orgMembers.orgId, proj.orgId),
+              inArray(orgMembers.userId, assignedUserIds),
+              eq(orgMembers.role, "developer")
+            ));
+
+          if (validMembers.length !== assignedUserIds.length) {
+            throw new AppError("One or more assigned users are not developers in this organization", 400);
+          }
+        }
+
         const assignEntries = assignedUserIds.map((userId: string) => ({
           taskId: id,
-          userId: userId,
+          userId,
         }));
         await tx.insert(taskAssignees).values(assignEntries);
+
+        // Auto-add assignees to projectMembers so they can view the project
+        await tx
+          .insert(projectMembers)
+          .values(assignedUserIds.map((userId: string) => ({ projectId: task.projectId, userId })))
+          .onConflictDoNothing();
 
         // Notify newly assigned users (fire-and-forget)
         for (const userId of assignedUserIds) {
@@ -363,6 +451,15 @@ export const updateTask = async (id: string, data: any, orgId: string) => {
 
     return updated;
   });
+
+  // Fetch assignees with user info to return consistent shape
+  const assignees = await db
+    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+    .from(taskAssignees)
+    .innerJoin(users, eq(taskAssignees.userId, users.id))
+    .where(eq(taskAssignees.taskId, id));
+
+  return { ...result, assignees };
 };
 
 // ─── Update Task Status Only (Developer + Admin) ─────────────────────────────
@@ -372,7 +469,7 @@ export const updateTaskStatus = async (
   newStatus: string,
   user: { userId: string; role: string; orgId?: string }
 ) => {
-  return await db.transaction(async (tx) => {
+  const statusResult = await db.transaction(async (tx) => {
     // Build scope filter
     let taskQuery;
     if (user.role === "superadmin") {
@@ -407,6 +504,11 @@ export const updateTaskStatus = async (
       throw new AppError(`Cannot transition from "${task.status}" to "${newStatus}"`, 400);
     }
 
+    // Only admins and superadmins can reopen a completed task
+    if (task.status === "completed" && user.role === "developer") {
+      throw new AppError("Only admins can reopen completed tasks", 403);
+    }
+
     const completedAt = newStatus === "completed" ? new Date() : null;
 
     const [updated] = await tx
@@ -417,38 +519,52 @@ export const updateTaskStatus = async (
 
     await updateProjectStatusIfComplete(tx, task.projectId);
 
-    // Notify all assignees when a task is marked completed (fire-and-forget)
-    if (newStatus === "completed" && updated) {
-      db.select({ userId: taskAssignees.userId })
-        .from(taskAssignees)
-        .where(eq(taskAssignees.taskId, id))
-        .then((assignees) => {
-          for (const assignee of assignees) {
-            createNotification({
-              userId: assignee.userId,
-              type: "task_completed",
-              title: "Task marked as completed",
-              body: `"${updated.title}" has been marked as completed.`,
-              entityType: "task",
-              entityId: id,
-            }).catch(console.error);
-          }
-        })
-        .catch(console.error);
-    }
-
     return updated;
   });
+
+  // Fire-and-forget notifications AFTER transaction commits to avoid connection race conditions
+  if (newStatus === "completed" && statusResult) {
+    db.select({ userId: taskAssignees.userId })
+      .from(taskAssignees)
+      .where(eq(taskAssignees.taskId, id))
+      .then((assignees) => {
+        for (const assignee of assignees) {
+          createNotification({
+            userId: assignee.userId,
+            type: "task_completed",
+            title: "Task marked as completed",
+            body: `"${statusResult.title}" has been marked as completed.`,
+            entityType: "task",
+            entityId: id,
+          }).catch(console.error);
+        }
+      })
+      .catch(console.error);
+  }
+
+  // Fetch assignees with user info to return consistent shape
+  const assignees = await db
+    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+    .from(taskAssignees)
+    .innerJoin(users, eq(taskAssignees.userId, users.id))
+    .where(eq(taskAssignees.taskId, id));
+
+  return { ...statusResult, assignees };
 };
 
 // ─── Soft Delete Task ────────────────────────────────────────────────────────
 
-export const softDeleteTask = async (id: string, orgId: string) => {
-  const [task] = await db
-    .select({ id: tasks.id, status: tasks.status, projectId: tasks.projectId, parentTaskId: tasks.parentTaskId })
-    .from(tasks)
-    .innerJoin(projects, eq(tasks.projectId, projects.id))
-    .where(and(eq(tasks.id, id), eq(projects.orgId, orgId), isNull(tasks.deletedAt)));
+export const softDeleteTask = async (id: string, orgId?: string) => {
+  const [task] = orgId
+    ? await db
+        .select({ id: tasks.id, status: tasks.status, projectId: tasks.projectId, parentTaskId: tasks.parentTaskId })
+        .from(tasks)
+        .innerJoin(projects, eq(tasks.projectId, projects.id))
+        .where(and(eq(tasks.id, id), eq(projects.orgId, orgId), isNull(tasks.deletedAt)))
+    : await db
+        .select({ id: tasks.id, status: tasks.status, projectId: tasks.projectId, parentTaskId: tasks.parentTaskId })
+        .from(tasks)
+        .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
 
   if (!task) throw new AppError("Task not found", 404);
 

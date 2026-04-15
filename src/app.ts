@@ -29,6 +29,7 @@ app.use("*", cors({
   allowHeaders: ["Authorization", "Content-Type"],
 }));
 
+app.get("/", (c) => c.json({ status: "OK", message: "Task Management API is running" }));
 app.get("/health", (c) => c.json({ status: "OK" }));
 
 app.route("/api/auth", authRoutes);

@@ -91,7 +91,10 @@ export const removeAttachment = async (attachmentId: string, user: User) => {
 
   if (!attachment) throw new AppError("Attachment not found", 404);
 
-  // Only uploader or admin can delete
+  // Verify requester has access to the task this attachment belongs to (prevents cross-org IDOR)
+  await verifyTaskAccess(attachment.taskId, user);
+
+  // Only uploader or admin/superadmin can delete
   if (user.role !== "admin" && user.role !== "superadmin" && attachment.uploadedBy !== user.userId) {
     throw new AppError("You can only delete your own attachments", 403);
   }

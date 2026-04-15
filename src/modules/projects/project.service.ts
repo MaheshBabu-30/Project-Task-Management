@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
-import { projects, tasks, projectMembers, users, taskAssignees } from "../../../drizzle/schema.js";
-import { eq, ilike, and, asc, desc, isNull, inArray, notInArray, count } from "drizzle-orm";
+import { projects, tasks, projectMembers, orgMembers, organizations, users, taskAssignees } from "../../../drizzle/schema.js";
+import { eq, ilike, and, asc, desc, isNull, isNotNull, inArray, notInArray, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
 interface ProjectQuery {
@@ -28,26 +28,52 @@ export const createProject = async (data: {
 }) => {
   const { assignedUserIds, ...projectData } = data;
 
-  return await db.transaction(async (tx) => {
+  const newProject = await db.transaction(async (tx) => {
+    // 0. Verify org exists and is not deleted
+    const [org] = await tx
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(and(eq(organizations.id, data.orgId), isNull(organizations.deletedAt)));
+
+    if (!org) throw new AppError("Organization not found", 404);
+
     // 1. Insert Project
-    const [newProject] = await tx
+    const [project] = await tx
       .insert(projects)
       .values(projectData)
       .returning();
 
-    if (!newProject) throw new AppError("Failed to create project", 500);
+    if (!project) throw new AppError("Failed to create project", 500);
 
     // 2. Assign initial members if provided
     if (assignedUserIds && assignedUserIds.length > 0) {
+      const validMembers = await tx
+        .select({ userId: orgMembers.userId })
+        .from(orgMembers)
+        .where(and(eq(orgMembers.orgId, data.orgId), inArray(orgMembers.userId, assignedUserIds)));
+
+      if (validMembers.length !== assignedUserIds.length) {
+        throw new AppError("One or more assigned users do not belong to this organization", 400);
+      }
+
       const memberEntries = assignedUserIds.map((userId) => ({
-        projectId: newProject.id,
-        userId: userId,
+        projectId: project.id,
+        userId,
       }));
       await tx.insert(projectMembers).values(memberEntries);
     }
 
-    return newProject;
+    return project;
   });
+
+  // Fetch members with user info to return consistent shape
+  const members = await db
+    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+    .from(projectMembers)
+    .innerJoin(users, eq(projectMembers.userId, users.id))
+    .where(eq(projectMembers.projectId, newProject.id));
+
+  return { ...newProject, members };
 };
 
 // ─── Get Projects (Scoped) ───────────────────────────────────────────────────
@@ -58,7 +84,7 @@ export const getProjects = async (
 ) => {
   const { id, orgId, title, createdBy, status, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
 
-  const filters = [showDeleted ? notInArray(projects.deletedAt, [null as any]) : isNull(projects.deletedAt)];
+  const filters = [showDeleted ? isNotNull(projects.deletedAt) : isNull(projects.deletedAt)];
 
   // 1. Scoping Logic
   if (user.role === "superadmin") {
@@ -90,7 +116,7 @@ export const getProjects = async (
   const offset = (page - 1) * limit;
 
   // 3. Sorting logic
-  const validColumns: Record<string, any> = { id: projects.id, title: projects.title, createdAt: projects.createdAt };
+  const validColumns: Record<string, any> = { id: projects.id, title: projects.title, status: projects.status, createdAt: projects.createdAt };
   const orderColumn = validColumns[sortBy] || projects.id;
   const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
@@ -192,42 +218,65 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
 
 // ─── Update Project ──────────────────────────────────────────────────────────
 
-export const updateProject = async (id: string, data: any, orgId: string) => {
+export const updateProject = async (id: string, data: any, orgId?: string) => {
   const { assignedUserIds, ...projectData } = data;
 
-  return await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [updated] = await tx
       .update(projects)
       .set({ ...projectData, updatedAt: new Date() })
-      .where(and(eq(projects.id, id), eq(projects.orgId, orgId)))
+      .where(orgId
+        ? and(eq(projects.id, id), eq(projects.orgId, orgId), isNull(projects.deletedAt))
+        : and(eq(projects.id, id), isNull(projects.deletedAt)))
       .returning();
 
     if (!updated) throw new AppError("Project not found or access denied", 404);
 
     // If assignedUserIds is provided, sync the membership
-    if (assignedUserIds) {
-      // Simplification: clear and re-add. In prod, you'd do a diff.
+    if (assignedUserIds !== undefined) {
+      if (assignedUserIds.length === 0) {
+        throw new AppError("assignedUserIds cannot be empty. Omit the field to keep current members.", 400);
+      }
       await tx.delete(projectMembers).where(eq(projectMembers.projectId, id));
-      const memberEntries = assignedUserIds.map((userId: string) => ({
-        projectId: id,
-        userId: userId,
-      }));
-      if (memberEntries.length > 0) {
-        await tx.insert(projectMembers).values(memberEntries);
+
+      if (assignedUserIds.length > 0) {
+        const validMembers = await tx
+          .select({ userId: orgMembers.userId })
+          .from(orgMembers)
+          .where(and(eq(orgMembers.orgId, updated.orgId), inArray(orgMembers.userId, assignedUserIds)));
+
+        if (validMembers.length !== assignedUserIds.length) {
+          throw new AppError("One or more assigned users do not belong to this organization", 400);
+        }
+
+        await tx.insert(projectMembers).values(
+          assignedUserIds.map((userId: string) => ({ projectId: id, userId }))
+        );
       }
     }
 
     return updated;
   });
+
+  // Fetch members with user info to return consistent shape
+  const members = await db
+    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+    .from(projectMembers)
+    .innerJoin(users, eq(projectMembers.userId, users.id))
+    .where(eq(projectMembers.projectId, id));
+
+  return { ...result, members };
 };
 
 // ─── Delete Project ──────────────────────────────────────────────────────────
 
-export const deleteProject = async (id: string, orgId: string) => {
+export const deleteProject = async (id: string, orgId?: string) => {
   const [project] = await db
     .select()
     .from(projects)
-    .where(and(eq(projects.id, id), eq(projects.orgId, orgId), isNull(projects.deletedAt)));
+    .where(orgId
+      ? and(eq(projects.id, id), eq(projects.orgId, orgId), isNull(projects.deletedAt))
+      : and(eq(projects.id, id), isNull(projects.deletedAt)));
 
   if (!project) throw new AppError("Project not found", 404);
 

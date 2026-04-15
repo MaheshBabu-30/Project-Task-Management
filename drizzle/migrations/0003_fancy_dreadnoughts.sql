@@ -1,0 +1,1 @@
+ALTER TYPE "public"."notification_type" ADD VALUE 'task_due_soon' BEFORE 'task_overdue';

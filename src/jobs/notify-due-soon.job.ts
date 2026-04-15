@@ -48,7 +48,7 @@ export const notifyDueSoonTasks = async () => {
     const title = taskTitleMap[assignee.taskId] ?? "a task";
     createNotification({
       userId: assignee.userId,
-      type: "task_overdue",
+      type: "task_due_soon",
       title: "Task due tomorrow",
       body: `"${title}" is due tomorrow. Make sure to complete it on time.`,
       entityType: "task",

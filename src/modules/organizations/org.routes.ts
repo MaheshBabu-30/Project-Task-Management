@@ -17,7 +17,7 @@ router.use(authMiddleware);
 
 router.post("/", roleMiddleware(["superadmin"]), createOrg);
 router.get("/", roleMiddleware(["superadmin"]), listOrgs);
-router.get("/:id", roleMiddleware(["superadmin", "admin"]), getOrgDetails);
+router.get("/:id", roleMiddleware(["superadmin", "admin", "developer"]), getOrgDetails);
 router.post("/:id/admin", roleMiddleware(["superadmin"]), assignAdmin);
 router.post("/:id/developers", roleMiddleware(["admin"]), addDeveloper);
 router.delete("/:id", roleMiddleware(["superadmin"]), deleteOrg);

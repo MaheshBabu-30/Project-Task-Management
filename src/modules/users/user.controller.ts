@@ -81,6 +81,14 @@ export const toggleUserStatus = async (c: Context) => {
   return successResponse(c, updated);
 };
 
+// ─── Get My Profile ───────────────────────────────────────────────────────────
+
+export const getMe = async (c: Context) => {
+  const user = c.get("user");
+  const profile = await getUserById(user.userId);
+  return successResponse(c, profile);
+};
+
 // ─── Update My Profile ────────────────────────────────────────────────────────
 
 export const updateMe = async (c: Context) => {

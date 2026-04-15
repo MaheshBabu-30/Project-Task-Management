@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { auditLogQuerySchema } from "./audit-log.schema.js";
 import { getAuditLogs } from "./audit-log.service.js";
 import { successResponse } from "../../utils/response.js";
+import { buildPagination } from "../../utils/pagination.js";
 
 export const listAuditLogs = async (c: Context) => {
   const user = c.get("user");
@@ -16,7 +17,13 @@ export const listAuditLogs = async (c: Context) => {
 
   // Admin is always scoped to their own org
   const scopedOrgId = user.role === "admin" ? user.orgId : undefined;
-  const data = await getAuditLogs(query, scopedOrgId);
+  const { data, totalRecords } = await getAuditLogs(query, scopedOrgId);
 
-  return successResponse(c, { auditLogs: data });
+  const pagination = buildPagination({
+    page: query.page as number,
+    limit: query.limit as number,
+    totalRecords,
+  });
+
+  return successResponse(c, { auditLogs: data, pagination });
 };

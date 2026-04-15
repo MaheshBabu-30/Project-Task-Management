@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { comments, tasks, projects, taskAssignees } from "../../../drizzle/schema.js";
-import { eq, and, isNull, asc, desc } from "drizzle-orm";
+import { eq, and, isNull, asc, desc, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 import { createNotification } from "../notifications/notification.service.js";
 
@@ -50,15 +50,20 @@ export const getComments = async (
   const { page = 1, limit = 20, order = "asc" } = query;
   const offset = (page - 1) * limit;
 
-  const data = await db
-    .select()
-    .from(comments)
-    .where(and(eq(comments.taskId, taskId), isNull(comments.deletedAt)))
-    .orderBy(order === "desc" ? desc(comments.createdAt) : asc(comments.createdAt))
-    .limit(limit)
-    .offset(offset);
+  const whereCondition = and(eq(comments.taskId, taskId), isNull(comments.deletedAt));
 
-  return data;
+  const [data, countResult] = await Promise.all([
+    db
+      .select()
+      .from(comments)
+      .where(whereCondition)
+      .orderBy(order === "desc" ? desc(comments.createdAt) : asc(comments.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: count() }).from(comments).where(whereCondition),
+  ]);
+
+  return { data, totalRecords: countResult[0]?.total ?? 0 };
 };
 
 // ─── Create Comment ───────────────────────────────────────────────────────────
@@ -103,6 +108,9 @@ export const updateComment = async (commentId: string, body: string, user: User)
 
   if (!comment) throw new AppError("Comment not found", 404);
 
+  // Verify requester still has access to the task (prevents cross-org edits)
+  await verifyTaskAccess(comment.taskId, user);
+
   // Only the author can edit their own comment
   if (comment.authorId !== user.userId) {
     throw new AppError("You can only edit your own comments", 403);
@@ -127,7 +135,10 @@ export const deleteComment = async (commentId: string, user: User) => {
 
   if (!comment) throw new AppError("Comment not found", 404);
 
-  // Author can delete their own; admin can delete any
+  // Verify requester has access to the task (prevents cross-org IDOR for admins)
+  await verifyTaskAccess(comment.taskId, user);
+
+  // Author can delete their own; admin can delete any within their org
   if (user.role !== "admin" && user.role !== "superadmin" && comment.authorId !== user.userId) {
     throw new AppError("You can only delete your own comments", 403);
   }

@@ -38,7 +38,7 @@ export const createUser = async (
     const [newUser] = await tx
       .insert(users)
       .values({ name: data.name, email: data.email, passwordHash, role: data.role })
-      .returning({ id: users.id, name: users.name, email: users.email, role: users.role });
+      .returning({ id: users.id, name: users.name, email: users.email, role: users.role, status: users.status });
 
     if (!newUser) throw new AppError("Failed to create user", 500);
 
@@ -84,7 +84,7 @@ export const getUsers = async (query: UserQuery, contextOrgId?: string) => {
   const offset = (page - 1) * limit;
 
   // 3. Sorting logic
-  const validColumns: Record<string, any> = { id: users.id, name: users.name, email: users.email, createdAt: users.createdAt };
+  const validColumns: Record<string, any> = { id: users.id, name: users.name, email: users.email, role: users.role, status: users.status, createdAt: users.createdAt };
   const orderColumn = validColumns[sortBy] || users.id;
   const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
@@ -131,7 +131,18 @@ export const getUserById = async (userId: string, contextOrgId?: string) => {
   }
 
   const [user] = await db
-    .select()
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      status: users.status,
+      phone: users.phone,
+      avatarUrl: users.avatarUrl,
+      lastLoginAt: users.lastLoginAt,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt,
+    })
     .from(users)
     .where(and(...filters))
     .limit(1);
@@ -158,6 +169,17 @@ export const updateUserStatus = async (
   // 2. Admin must check org membership; superadmin skips this check
   if (requesterRole === "admin") {
     if (!adminOrgId) throw new AppError("Admin has no organization", 403);
+
+    // Admins can only change status of developers — not other admins
+    const [targetUser] = await db
+      .select({ role: users.role })
+      .from(users)
+      .where(and(eq(users.id, id), isNull(users.deletedAt)));
+
+    if (!targetUser) throw new AppError("User not found", 404);
+    if (targetUser.role !== "developer") {
+      throw new AppError("Admins can only change the status of developer accounts", 403);
+    }
 
     const [membership] = await db
       .select()
@@ -189,7 +211,18 @@ export const updateUserProfile = async (id: string, data: any) => {
     .update(users)
     .set({ ...data, updatedAt: new Date() })
     .where(eq(users.id, id))
-    .returning();
+    .returning({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      status: users.status,
+      phone: users.phone,
+      avatarUrl: users.avatarUrl,
+      lastLoginAt: users.lastLoginAt,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt,
+    });
 
   return updated;
 };

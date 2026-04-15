@@ -53,8 +53,8 @@ export const getOrgDetails = async (c: Context) => {
   const user = c.get("user");
   const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
 
-  // Admin can only see their own org
-  if (user.role === "admin" && user.orgId !== orgId) {
+  // Admin and developer can only see their own org
+  if ((user.role === "admin" || user.role === "developer") && user.orgId !== orgId) {
     return c.json({ message: "Access denied to this organization" }, 403);
   }
 

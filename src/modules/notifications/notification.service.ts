@@ -1,13 +1,13 @@
 import { db } from "../../config/db.js";
 import { notifications } from "../../../drizzle/schema.js";
-import { eq, and, isNull, desc } from "drizzle-orm";
+import { eq, and, isNull, desc, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
 // ─── Create Notification (internal helper) ────────────────────────────────────
 
 export const createNotification = async (data: {
   userId: string;
-  type: "task_assigned" | "task_overdue" | "task_completed" | "comment_added" | "member_removed";
+  type: "task_assigned" | "task_due_soon" | "task_overdue" | "task_completed" | "comment_added" | "member_removed";
   title: string;
   body?: string;
   entityType?: string;
@@ -29,15 +29,20 @@ export const getNotifications = async (
   const filters = [eq(notifications.userId, userId)];
   if (unread === true) filters.push(isNull(notifications.readAt));
 
-  const data = await db
-    .select()
-    .from(notifications)
-    .where(and(...filters))
-    .orderBy(desc(notifications.createdAt))
-    .limit(limit)
-    .offset(offset);
+  const whereCondition = and(...filters);
 
-  return data;
+  const [data, countResult] = await Promise.all([
+    db
+      .select()
+      .from(notifications)
+      .where(whereCondition)
+      .orderBy(desc(notifications.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: count() }).from(notifications).where(whereCondition),
+  ]);
+
+  return { data, totalRecords: countResult[0]?.total ?? 0 };
 };
 
 // ─── Mark One as Read ─────────────────────────────────────────────────────────

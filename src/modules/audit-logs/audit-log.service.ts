@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { auditLogs } from "../../../drizzle/schema.js";
-import { eq, and, gte, lte, ilike, asc, desc } from "drizzle-orm";
+import { eq, and, gte, lte, ilike, desc, count } from "drizzle-orm";
 
 // ─── Create Audit Log (internal helper) ──────────────────────────────────────
 
@@ -53,13 +53,16 @@ export const getAuditLogs = async (
 
   const whereCondition = filters.length > 0 ? and(...filters) : undefined;
 
-  const data = await db
-    .select()
-    .from(auditLogs)
-    .where(whereCondition)
-    .orderBy(desc(auditLogs.createdAt))
-    .limit(limit)
-    .offset(offset);
+  const [data, countResult] = await Promise.all([
+    db
+      .select()
+      .from(auditLogs)
+      .where(whereCondition)
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: count() }).from(auditLogs).where(whereCondition),
+  ]);
 
-  return data;
+  return { data, totalRecords: countResult[0]?.total ?? 0 };
 };

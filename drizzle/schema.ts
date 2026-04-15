@@ -309,6 +309,7 @@ export const attachments = pgTable(
 
 export const notificationTypeEnum = pgEnum("notification_type", [
   "task_assigned",
+  "task_due_soon",
   "task_overdue",
   "task_completed",
   "comment_added",

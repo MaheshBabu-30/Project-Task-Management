@@ -27,6 +27,7 @@ export const createNewTask = async (c: Context) => {
   const task = await createTask({
     ...data,
     createdBy: user.userId,
+    requesterOrgId: user.role !== "superadmin" ? user.orgId : undefined,
   });
 
   createAuditLog({

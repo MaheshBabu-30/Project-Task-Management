@@ -4,6 +4,7 @@ import { createCommentSchema, updateCommentSchema, commentQuerySchema } from "./
 import { uuidSchema } from "../../utils/schema.js";
 import { getComments, createComment, updateComment, deleteComment } from "./comment.service.js";
 import { successResponse } from "../../utils/response.js";
+import { buildPagination } from "../../utils/pagination.js";
 
 export const listComments = async (c: Context) => {
   const user = c.get("user");
@@ -16,8 +17,15 @@ export const listComments = async (c: Context) => {
     limit: rawQuery.limit ? Number(rawQuery.limit) : 20,
   });
 
-  const data = await getComments(taskId, user, query);
-  return successResponse(c, { comments: data });
+  const { data, totalRecords } = await getComments(taskId, user, query);
+
+  const pagination = buildPagination({
+    page: query.page as number,
+    limit: query.limit as number,
+    totalRecords,
+  });
+
+  return successResponse(c, { comments: data, pagination });
 };
 
 export const addComment = async (c: Context) => {

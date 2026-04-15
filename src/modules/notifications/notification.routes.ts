@@ -8,6 +8,6 @@ router.use(authMiddleware);
 
 router.get("/", listNotifications);
 router.patch("/:id/read", markOneRead);
-router.post("/read-all", markAllRead);
+router.patch("/read-all", markAllRead);
 
 export default router;

@@ -1,4 +1,4 @@
-import { object, string, optional, number, minValue, pipe, picklist, array, boolean, uuid, minLength, maxLength, regex } from "valibot";
+import { object, string, optional, number, minValue, maxValue, pipe, picklist, array, boolean, uuid, minLength, maxLength, regex } from "valibot";
 
 export const createTaskSchema = object({
   title: pipe(string(), minLength(1, "Title is required"), maxLength(300, "Title must be at most 300 characters")),
@@ -34,7 +34,7 @@ export const taskQuerySchema = object({
   parentTaskId: optional(pipe(string(), uuid())),
   assignedUserId: optional(pipe(string(), uuid())),
   page: optional(pipe(number(), minValue(1))),
-  limit: optional(pipe(number(), minValue(1))),
+  limit: optional(pipe(number(), minValue(1), maxValue(100, "Limit must be <= 100"))),
   sortBy: optional(picklist(["title", "status", "priority", "dueDate", "createdAt"] as const)),
   order: optional(picklist(["asc", "desc"] as const)),
   showDeleted: optional(boolean()),

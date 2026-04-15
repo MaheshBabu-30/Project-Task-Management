@@ -1,7 +1,7 @@
 import bcrypt from "bcrypt";
 import { createHash, createHmac, randomInt } from "crypto";
 import { db } from "../../config/db.js";
-import { users, sessions, otps, orgMembers } from "../../../drizzle/schema.js";
+import { users, sessions, otps, orgMembers, organizations } from "../../../drizzle/schema.js";
 import { eq, and, desc, isNull } from "drizzle-orm";
 import { generateToken, generateRefreshToken, verifyRefreshToken } from "../../utils/jwt.js";
 import { AppError } from "../../utils/errors.js";
@@ -17,7 +17,8 @@ const buildTokenPayload = async (user: { id: string; role: "superadmin" | "admin
     const [membership] = await db
       .select({ orgId: orgMembers.orgId })
       .from(orgMembers)
-      .where(eq(orgMembers.userId, user.id))
+      .innerJoin(organizations, eq(orgMembers.orgId, organizations.id))
+      .where(and(eq(orgMembers.userId, user.id), isNull(organizations.deletedAt)))
       .limit(1);
 
     orgId = membership?.orgId;
@@ -60,7 +61,7 @@ export const loginUser = async ({ email, password }: { email: string; password: 
   await createSession(user.id, refreshToken);
 
   return {
-    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    user: { id: user.id, name: user.name, email: user.email, role: user.role, orgId: payload.orgId },
     tokens: { accessToken, refreshToken },
   };
 };
@@ -92,11 +93,15 @@ export const refreshSession = async (token: string) => {
     if (!user) throw new AppError("User not found", 404);
     if (user.status === "inactive") throw new AppError("Your account is deactivated.", 403);
 
-    // Issue new access token only — refresh token stays the same
+    // Rotate refresh token — issue a new one and replace the stored hash
     const newPayload = await buildTokenPayload(user);
     const accessToken = generateToken(newPayload);
+    const newRefreshToken = generateRefreshToken(newPayload);
 
-    return { tokens: { accessToken, refreshToken: token } };
+    const newTokenHash = createHash("sha256").update(newRefreshToken).digest("hex");
+    await db.update(sessions).set({ refreshToken: newTokenHash }).where(eq(sessions.id, session.id));
+
+    return { tokens: { accessToken, refreshToken: newRefreshToken } };
   } catch (error) {
     throw new AppError(error instanceof AppError ? error.message : "Invalid or expired refresh token", 401);
   }
@@ -156,7 +161,9 @@ export const verifyOtp = async (email: string, otp: string) => {
 
   if (!isValid) throw new AppError("Invalid verification code", 400);
 
-  await db.delete(otps).where(eq(otps.email, email));
+  // Atomic delete by specific ID — prevents concurrent requests from consuming the same OTP
+  const deleted = await db.delete(otps).where(eq(otps.id, latestOtp.id)).returning({ id: otps.id });
+  if (deleted.length === 0) throw new AppError("Verification code already used. Please request a new one.", 400);
 
   const [user] = await db
     .select()
@@ -174,7 +181,7 @@ export const verifyOtp = async (email: string, otp: string) => {
   await createSession(user.id, refreshToken);
 
   return {
-    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    user: { id: user.id, name: user.name, email: user.email, role: user.role, orgId: payload.orgId },
     tokens: { accessToken, refreshToken },
   };
 };

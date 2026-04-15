@@ -4,6 +4,7 @@ import { notificationQuerySchema } from "./notification.schema.js";
 import { uuidSchema } from "../../utils/schema.js";
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from "./notification.service.js";
 import { successResponse } from "../../utils/response.js";
+import { buildPagination } from "../../utils/pagination.js";
 
 export const listNotifications = async (c: Context) => {
   const user = c.get("user");
@@ -16,8 +17,15 @@ export const listNotifications = async (c: Context) => {
     unread: rawQuery.unread === "true" ? true : rawQuery.unread === "false" ? false : undefined,
   });
 
-  const data = await getNotifications(user.userId, query);
-  return successResponse(c, { notifications: data });
+  const { data, totalRecords } = await getNotifications(user.userId, query);
+
+  const pagination = buildPagination({
+    page: query.page as number,
+    limit: query.limit as number,
+    totalRecords,
+  });
+
+  return successResponse(c, { notifications: data, pagination });
 };
 
 export const markOneRead = async (c: Context) => {

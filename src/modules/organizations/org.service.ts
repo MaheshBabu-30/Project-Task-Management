@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
-import { organizations, orgMembers, users, projects, projectMembers, taskAssignees, tasks } from "../../../drizzle/schema.js";
-import { eq, and, isNull, inArray } from "drizzle-orm";
+import { organizations, orgMembers, users, projects, projectMembers, taskAssignees, tasks, sessions } from "../../../drizzle/schema.js";
+import { eq, and, isNull, inArray, isNotNull } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
 // ─── Create Organization ──────────────────────────────────────────────────────
@@ -54,11 +54,58 @@ export const softDeleteOrg = async (orgId: string, deletedBy: string) => {
 
   if (!org) throw new AppError("Organization not found", 404);
 
-  const [updated] = await db
-    .update(organizations)
-    .set({ deletedAt: new Date(), deletedBy, updatedAt: new Date() })
-    .where(eq(organizations.id, orgId))
-    .returning({ id: organizations.id, name: organizations.name });
+  const now = new Date();
+
+  const updated = await db.transaction(async (tx) => {
+    // 1. Get all members to revoke their sessions
+    const members = await tx
+      .select({ userId: orgMembers.userId })
+      .from(orgMembers)
+      .where(eq(orgMembers.orgId, orgId));
+
+    const memberIds = members.map((m) => m.userId);
+
+    // 2. Get all projects to cascade to tasks
+    const orgProjects = await tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.orgId, orgId), isNull(projects.deletedAt)));
+
+    const projectIds = orgProjects.map((p) => p.id);
+
+    // 3. Soft-delete all tasks in those projects
+    if (projectIds.length > 0) {
+      await tx
+        .update(tasks)
+        .set({ deletedAt: now })
+        .where(and(inArray(tasks.projectId, projectIds), isNull(tasks.deletedAt)));
+    }
+
+    // 4. Soft-delete all projects
+    if (projectIds.length > 0) {
+      await tx
+        .update(projects)
+        .set({ deletedAt: now })
+        .where(eq(projects.orgId, orgId));
+    }
+
+    // 5. Remove all org members
+    await tx.delete(orgMembers).where(eq(orgMembers.orgId, orgId));
+
+    // 6. Revoke all member sessions
+    if (memberIds.length > 0) {
+      await tx.delete(sessions).where(inArray(sessions.userId, memberIds));
+    }
+
+    // 7. Soft-delete the organization
+    const [result] = await tx
+      .update(organizations)
+      .set({ deletedAt: now, deletedBy, updatedAt: now })
+      .where(eq(organizations.id, orgId))
+      .returning({ id: organizations.id, name: organizations.name });
+
+    return result;
+  });
 
   return { message: "Organization deleted successfully", org: updated };
 };
@@ -93,11 +140,11 @@ export const getOrganizationById = async (orgId: string) => {
 // ─── Assign Admin to Organization ────────────────────────────────────────────
 
 export const assignAdminToOrg = async (orgId: string, userId: string) => {
-  // Verify org exists
+  // Verify org exists and is not deleted
   const [org] = await db
     .select()
     .from(organizations)
-    .where(eq(organizations.id, orgId));
+    .where(and(eq(organizations.id, orgId), isNull(organizations.deletedAt)));
 
   if (!org) throw new AppError("Organization not found", 404);
 
@@ -229,6 +276,9 @@ export const removeMemberFromOrg = async (orgId: string, userId: string) => {
     await tx
       .delete(orgMembers)
       .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)));
+
+    // Step 7: Revoke all active sessions to immediately invalidate their JWT
+    await tx.delete(sessions).where(eq(sessions.userId, userId));
   });
 
   return { message: "Member removed from organization successfully" };
