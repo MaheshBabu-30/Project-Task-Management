@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
-import { auditLogs } from "../../../drizzle/schema.js";
-import { eq, and, gte, lte, ilike, asc, desc, count } from "drizzle-orm";
+import { auditLogs, users, organizations } from "../../../drizzle/schema.js";
+import { eq, and, gte, lte, ilike, asc, desc, count, inArray } from "drizzle-orm";
 
 // ─── Create Audit Log (internal helper) ──────────────────────────────────────
 
@@ -63,7 +63,7 @@ export const getAuditLogs = async (
   const orderColumn = validColumns[sortBy] ?? auditLogs.createdAt;
   const orderDirection = order === "asc" ? asc(orderColumn) : desc(orderColumn);
 
-  const [data, countResult] = await Promise.all([
+  const [rawData, countResult] = await Promise.all([
     db
       .select()
       .from(auditLogs)
@@ -73,6 +73,36 @@ export const getAuditLogs = async (
       .offset(offset),
     db.select({ total: count() }).from(auditLogs).where(whereCondition),
   ]);
+
+  // Batch fetch actors and organizations
+  const actorIds = [...new Set(rawData.map((l) => l.actorId).filter(Boolean))] as string[];
+  const orgIds = [...new Set(rawData.map((l) => l.orgId).filter(Boolean))] as string[];
+
+  const actorsMap: Record<string, any> = {};
+  const orgsMap: Record<string, any> = {};
+
+  await Promise.all([
+    actorIds.length > 0
+      ? db
+          .select({ id: users.id, name: users.name, email: users.email })
+          .from(users)
+          .where(inArray(users.id, actorIds))
+          .then((rows) => rows.forEach((r) => { actorsMap[r.id] = r; }))
+      : Promise.resolve(),
+    orgIds.length > 0
+      ? db
+          .select({ id: organizations.id, name: organizations.name, slug: organizations.slug })
+          .from(organizations)
+          .where(inArray(organizations.id, orgIds))
+          .then((rows) => rows.forEach((r) => { orgsMap[r.id] = r; }))
+      : Promise.resolve(),
+  ]);
+
+  const data = rawData.map((log) => ({
+    ...log,
+    actor: log.actorId ? (actorsMap[log.actorId] ?? null) : null,
+    organization: log.orgId ? (orgsMap[log.orgId] ?? null) : null,
+  }));
 
   return { data, totalRecords: countResult[0]?.total ?? 0 };
 };

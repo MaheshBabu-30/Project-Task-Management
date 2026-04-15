@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
-import { attachments, tasks, projects, taskAssignees } from "../../../drizzle/schema.js";
-import { eq, and, isNull, ilike, asc, desc, count } from "drizzle-orm";
+import { attachments, tasks, projects, taskAssignees, users } from "../../../drizzle/schema.js";
+import { eq, and, isNull, ilike, asc, desc, count, inArray } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { s3Client, B2_BUCKET_NAME } from "../../config/s3.js";
@@ -49,7 +49,14 @@ export const getAttachmentById = async (attachmentId: string, taskId: string, us
 
   if (!attachment) throw new AppError("Attachment not found", 404);
 
-  return attachment;
+  const [uploader] = attachment.uploadedBy
+    ? await db
+        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+        .from(users)
+        .where(eq(users.id, attachment.uploadedBy))
+    : [null];
+
+  return { ...attachment, uploader: uploader ?? null };
 };
 
 // ─── List Attachments ─────────────────────────────────────────────────────────
@@ -79,10 +86,26 @@ export const getAttachments = async (
   const orderColumn = validColumns[sortBy] ?? attachments.createdAt;
   const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
-  const [data, countResult] = await Promise.all([
+  const [rawData, countResult] = await Promise.all([
     db.select().from(attachments).where(whereCondition).orderBy(orderDirection).limit(limit).offset(offset),
     db.select({ total: count() }).from(attachments).where(whereCondition),
   ]);
+
+  // Batch fetch uploaders
+  const uploaderIds = [...new Set(rawData.map((a) => a.uploadedBy).filter(Boolean))] as string[];
+  const uploadersMap: Record<string, any> = {};
+  if (uploaderIds.length > 0) {
+    const uploaders = await db
+      .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+      .from(users)
+      .where(inArray(users.id, uploaderIds));
+    uploaders.forEach((u) => { uploadersMap[u.id] = u; });
+  }
+
+  const data = rawData.map((a) => ({
+    ...a,
+    uploader: a.uploadedBy ? (uploadersMap[a.uploadedBy] ?? null) : null,
+  }));
 
   return { data, totalRecords: countResult[0]?.total ?? 0 };
 };
@@ -101,7 +124,12 @@ export const linkAttachment = async (
     .values({ taskId, uploadedBy: user.userId, ...data })
     .returning();
 
-  return attachment;
+  const [uploader] = await db
+    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+    .from(users)
+    .where(eq(users.id, user.userId));
+
+  return { ...attachment, uploader: uploader ?? null };
 };
 
 // ─── Delete Attachment ────────────────────────────────────────────────────────

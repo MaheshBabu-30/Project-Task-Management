@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
-import { comments, tasks, projects, taskAssignees } from "../../../drizzle/schema.js";
-import { eq, and, isNull, asc, desc, count } from "drizzle-orm";
+import { comments, tasks, projects, taskAssignees, users } from "../../../drizzle/schema.js";
+import { eq, and, isNull, asc, desc, count, inArray } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 import { createNotification } from "../notifications/notification.service.js";
 
@@ -55,7 +55,7 @@ export const getComments = async (
 
   const whereCondition = and(...conditions);
 
-  const [data, countResult] = await Promise.all([
+  const [rawData, countResult] = await Promise.all([
     db
       .select()
       .from(comments)
@@ -65,6 +65,22 @@ export const getComments = async (
       .offset(offset),
     db.select({ total: count() }).from(comments).where(whereCondition),
   ]);
+
+  // Batch fetch authors
+  const authorIds = [...new Set(rawData.map((c) => c.authorId).filter(Boolean))] as string[];
+  const authorsMap: Record<string, any> = {};
+  if (authorIds.length > 0) {
+    const authors = await db
+      .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+      .from(users)
+      .where(inArray(users.id, authorIds));
+    authors.forEach((a) => { authorsMap[a.id] = a; });
+  }
+
+  const data = rawData.map((c) => ({
+    ...c,
+    author: c.authorId ? (authorsMap[c.authorId] ?? null) : null,
+  }));
 
   return { data, totalRecords: countResult[0]?.total ?? 0 };
 };
@@ -98,7 +114,12 @@ export const createComment = async (taskId: string, body: string, user: User) =>
     })
     .catch(console.error);
 
-  return comment;
+  const [author] = await db
+    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+    .from(users)
+    .where(eq(users.id, user.userId));
+
+  return { ...comment, author: author ?? null };
 };
 
 // ─── Update Comment ───────────────────────────────────────────────────────────
@@ -125,7 +146,14 @@ export const updateComment = async (commentId: string, body: string, user: User)
     .where(eq(comments.id, commentId))
     .returning();
 
-  return updated;
+  const [author] = updated.authorId
+    ? await db
+        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+        .from(users)
+        .where(eq(users.id, updated.authorId))
+    : [null];
+
+  return { ...updated, author: author ?? null };
 };
 
 // ─── Delete Comment ───────────────────────────────────────────────────────────

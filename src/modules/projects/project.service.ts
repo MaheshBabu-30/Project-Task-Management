@@ -73,7 +73,14 @@ export const createProject = async (data: {
     .innerJoin(users, eq(projectMembers.userId, users.id))
     .where(eq(projectMembers.projectId, newProject.id));
 
-  return { ...newProject, members };
+  const [creator] = newProject.createdBy
+    ? await db
+        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+        .from(users)
+        .where(eq(users.id, newProject.createdBy))
+    : [null];
+
+  return { ...newProject, members, creator: creator ?? null };
 };
 
 // ─── Get Projects (Scoped) ───────────────────────────────────────────────────
@@ -158,9 +165,21 @@ export const getProjects = async (
     });
   }
 
+  // Batch fetch creators
+  const creatorIds = [...new Set(data.map((p) => p.createdBy).filter(Boolean))] as string[];
+  const creatorsMap: Record<string, any> = {};
+  if (creatorIds.length > 0) {
+    const allCreators = await db
+      .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+      .from(users)
+      .where(inArray(users.id, creatorIds));
+    allCreators.forEach((c) => { creatorsMap[c.id] = c; });
+  }
+
   const dataWithMembers = data.map((p) => ({
     ...p,
     members: membersMap[p.id] || [],
+    creator: p.createdBy ? (creatorsMap[p.createdBy] ?? null) : null,
   }));
 
   const countResult = await db
@@ -213,7 +232,14 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
     .innerJoin(users, eq(projectMembers.userId, users.id))
     .where(eq(projectMembers.projectId, id));
 
-  return { ...project, members };
+  const [creator] = project.createdBy
+    ? await db
+        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+        .from(users)
+        .where(eq(users.id, project.createdBy))
+    : [null];
+
+  return { ...project, members, creator: creator ?? null };
 };
 
 // ─── Update Project ──────────────────────────────────────────────────────────
@@ -265,7 +291,14 @@ export const updateProject = async (id: string, data: any, orgId?: string) => {
     .innerJoin(users, eq(projectMembers.userId, users.id))
     .where(eq(projectMembers.projectId, id));
 
-  return { ...result, members };
+  const [creator] = result.createdBy
+    ? await db
+        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+        .from(users)
+        .where(eq(users.id, result.createdBy))
+    : [null];
+
+  return { ...result, members, creator: creator ?? null };
 };
 
 // ─── Delete Project ──────────────────────────────────────────────────────────

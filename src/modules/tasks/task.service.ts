@@ -165,7 +165,14 @@ export const createTask = async (data: {
     .innerJoin(users, eq(taskAssignees.userId, users.id))
     .where(eq(taskAssignees.taskId, newTask.id));
 
-  return { ...newTask, assignees };
+  const [creator] = newTask.createdBy
+    ? await db
+        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+        .from(users)
+        .where(eq(users.id, newTask.createdBy))
+    : [null];
+
+  return { ...newTask, assignees, creator: creator ?? null };
 };
 
 // ─── Get Tasks (Scoped) ───────────────────────────────────────────────────────
@@ -276,9 +283,21 @@ export const getTasks = async (
     });
   }
 
+  // Batch fetch creators
+  const creatorIds = [...new Set(data.map((t) => t.createdBy).filter(Boolean))] as string[];
+  const creatorsMap: Record<string, any> = {};
+  if (creatorIds.length > 0) {
+    const allCreators = await db
+      .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+      .from(users)
+      .where(inArray(users.id, creatorIds));
+    allCreators.forEach((c) => { creatorsMap[c.id] = c; });
+  }
+
   const dataWithAssignees = data.map((task) => ({
     ...task,
     assignees: assigneesMap[task.id] || [],
+    creator: task.createdBy ? (creatorsMap[task.createdBy] ?? null) : null,
   }));
 
   const countResult = await db
@@ -332,15 +351,47 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
     .innerJoin(users, eq(taskAssignees.userId, users.id))
     .where(eq(taskAssignees.taskId, id));
 
-  // 3. Fetch subtasks (only for root tasks)
-  const subtasks = task.parentTaskId
-    ? []
-    : await db
-        .select()
-        .from(tasks)
-        .where(and(eq(tasks.parentTaskId, id), isNull(tasks.deletedAt)));
+  // 3. Fetch creator
+  const [creator] = task.createdBy
+    ? await db
+        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+        .from(users)
+        .where(eq(users.id, task.createdBy))
+    : [null];
 
-  return { ...task, assignees, subtasks };
+  // 4. Fetch subtasks (only for root tasks) with their assignees
+  let subtasks: any[] = [];
+  if (!task.parentTaskId) {
+    const rawSubtasks = await db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.parentTaskId, id), isNull(tasks.deletedAt)));
+
+    if (rawSubtasks.length > 0) {
+      const subtaskIds = rawSubtasks.map((s) => s.id);
+      const subtaskAssigneeRows = await db
+        .select({
+          taskId: taskAssignees.taskId,
+          id: users.id,
+          name: users.name,
+          email: users.email,
+          avatarUrl: users.avatarUrl,
+        })
+        .from(taskAssignees)
+        .innerJoin(users, eq(taskAssignees.userId, users.id))
+        .where(inArray(taskAssignees.taskId, subtaskIds));
+
+      const subtaskAssigneesMap: Record<string, any[]> = {};
+      subtaskAssigneeRows.forEach((a) => {
+        if (!subtaskAssigneesMap[a.taskId!]) subtaskAssigneesMap[a.taskId!] = [];
+        subtaskAssigneesMap[a.taskId!]!.push({ id: a.id, name: a.name, email: a.email, avatarUrl: a.avatarUrl });
+      });
+
+      subtasks = rawSubtasks.map((s) => ({ ...s, assignees: subtaskAssigneesMap[s.id] || [] }));
+    }
+  }
+
+  return { ...task, assignees, creator: creator ?? null, subtasks };
 };
 
 // ─── Update Task ──────────────────────────────────────────────────────────────
@@ -459,7 +510,14 @@ export const updateTask = async (id: string, data: any, orgId?: string) => {
     .innerJoin(users, eq(taskAssignees.userId, users.id))
     .where(eq(taskAssignees.taskId, id));
 
-  return { ...result, assignees };
+  const [creator] = result.createdBy
+    ? await db
+        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+        .from(users)
+        .where(eq(users.id, result.createdBy))
+    : [null];
+
+  return { ...result, assignees, creator: creator ?? null };
 };
 
 // ─── Update Task Status Only (Developer + Admin) ─────────────────────────────
@@ -549,7 +607,14 @@ export const updateTaskStatus = async (
     .innerJoin(users, eq(taskAssignees.userId, users.id))
     .where(eq(taskAssignees.taskId, id));
 
-  return { ...statusResult, assignees };
+  const [creator] = statusResult.createdBy
+    ? await db
+        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+        .from(users)
+        .where(eq(users.id, statusResult.createdBy))
+    : [null];
+
+  return { ...statusResult, assignees, creator: creator ?? null };
 };
 
 // ─── Soft Delete Task ────────────────────────────────────────────────────────

@@ -72,7 +72,23 @@ export const getAllOrganizations = async (query?: {
     db.select({ total: count() }).from(organizations).where(whereCondition),
   ]);
 
-  return { data: orgs, totalRecords: countResult[0]?.total ?? 0 };
+  // Batch fetch owner details
+  const ownerIds = orgs.map((o) => o.ownerId).filter(Boolean) as string[];
+  const ownersMap: Record<string, any> = {};
+  if (ownerIds.length > 0) {
+    const owners = await db
+      .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+      .from(users)
+      .where(inArray(users.id, ownerIds));
+    owners.forEach((o) => { ownersMap[o.id] = o; });
+  }
+
+  const data = orgs.map((org) => ({
+    ...org,
+    owner: org.ownerId ? (ownersMap[org.ownerId] ?? null) : null,
+  }));
+
+  return { data, totalRecords: countResult[0]?.total ?? 0 };
 };
 
 // ─── Get Organization By ID ───────────────────────────────────────────────────
@@ -181,7 +197,7 @@ export const assignAdminToOrg = async (orgId: string, userId: string) => {
 
   // Verify user exists and has admin role
   const [user] = await db
-    .select({ id: users.id, role: users.role, deletedAt: users.deletedAt })
+    .select({ id: users.id, name: users.name, email: users.email, phone: users.phone, avatarUrl: users.avatarUrl, role: users.role, status: users.status, deletedAt: users.deletedAt })
     .from(users)
     .where(eq(users.id, userId));
 
@@ -211,7 +227,13 @@ export const assignAdminToOrg = async (orgId: string, userId: string) => {
       .values({ orgId, userId, role: "admin" })
       .returning();
 
-    return { org: { ...org, ownerId: userId }, member };
+    return {
+      org: { ...org, ownerId: userId },
+      member: {
+        ...member,
+        user: { id: user.id, name: user.name, email: user.email, phone: user.phone, avatarUrl: user.avatarUrl, status: user.status },
+      },
+    };
   });
 };
 
@@ -229,7 +251,7 @@ export const addDeveloperToOrg = async (
 
   // Verify user exists and is a developer
   const [user] = await db
-    .select({ id: users.id, role: users.role, deletedAt: users.deletedAt })
+    .select({ id: users.id, name: users.name, email: users.email, phone: users.phone, avatarUrl: users.avatarUrl, role: users.role, status: users.status, deletedAt: users.deletedAt })
     .from(users)
     .where(eq(users.id, userId));
 
@@ -251,7 +273,10 @@ export const addDeveloperToOrg = async (
     .values({ orgId, userId, role: "developer" })
     .returning();
 
-  return member;
+  return {
+    ...member,
+    user: { id: user.id, name: user.name, email: user.email, phone: user.phone, avatarUrl: user.avatarUrl, status: user.status },
+  };
 };
 
 // ─── Remove Member from Organization (with cascade) ──────────────────────────
