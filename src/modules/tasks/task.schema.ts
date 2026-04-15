@@ -1,28 +1,28 @@
-import { object, string, optional, number, minValue, maxValue, pipe, picklist, array, boolean, uuid, minLength, maxLength, regex } from "valibot";
+import { object, string, optional, number, minValue, maxValue, pipe, picklist, array, boolean, uuid, minLength, maxLength, regex, nonEmpty } from "valibot";
 
 export const createTaskSchema = object({
-  title: pipe(string(), minLength(1, "Title is required"), maxLength(300, "Title must be at most 300 characters")),
-  description: optional(pipe(string(), maxLength(5000, "Description too long"))),
-  priority: optional(picklist(["low", "medium", "high", "urgent"] as const)),
-  dueDate: optional(pipe(string(), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"))),
-  projectId: pipe(string("projectId is required"), uuid("Invalid project ID")),
-  parentTaskId: optional(pipe(string(), uuid("Invalid parent task ID"))),
-  assignedUserIds: optional(array(pipe(string(), uuid()))),
+  title: pipe(string(), nonEmpty("Title is required"), minLength(1, "Title is required"), maxLength(300, "Title must be at most 300 characters")),
+  description: optional(pipe(string(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
+  priority: optional(picklist(["low", "medium", "high", "urgent"] as const, "Priority must be low, medium, high, or urgent")),
+  dueDate: optional(pipe(string(), nonEmpty("Due date cannot be empty"), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"))),
+  projectId: pipe(string(), nonEmpty("projectId is required"), uuid("Invalid project ID")),
+  parentTaskId: optional(pipe(string(), nonEmpty("parentTaskId cannot be empty"), uuid("Invalid parent task ID"))),
+  assignedUserIds: optional(array(pipe(string(), uuid("Invalid user ID format")))),
 });
 
 export const updateTaskSchema = object({
-  title: optional(pipe(string(), minLength(1, "Title is required"), maxLength(300, "Title must be at most 300 characters"))),
-  description: optional(pipe(string(), maxLength(5000, "Description too long"))),
-  priority: optional(picklist(["low", "medium", "high", "urgent"] as const)),
-  dueDate: optional(pipe(string(), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"))),
-  assignedUserIds: optional(array(pipe(string(), uuid()))),
-  status: optional(picklist(["to_do", "in_progress", "on_hold", "completed"] as const)),
+  title: optional(pipe(string(), nonEmpty("Title cannot be empty"), minLength(1, "Title is required"), maxLength(300, "Title must be at most 300 characters"))),
+  description: optional(pipe(string(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
+  priority: optional(picklist(["low", "medium", "high", "urgent"] as const, "Priority must be low, medium, high, or urgent")),
+  dueDate: optional(pipe(string(), nonEmpty("Due date cannot be empty"), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"))),
+  assignedUserIds: optional(array(pipe(string(), uuid("Invalid user ID format")))),
+  status: optional(picklist(["to_do", "in_progress", "on_hold", "completed"] as const, "Invalid status")),
   // projectId intentionally excluded — tasks cannot be moved between projects
 });
 
 // For PATCH /tasks/:id/status — developer + admin
 export const updateTaskStatusSchema = object({
-  status: picklist(["to_do", "in_progress", "on_hold", "completed"] as const, "Invalid status"),
+  status: picklist(["to_do", "in_progress", "on_hold", "completed"] as const, "Status must be to_do, in_progress, on_hold, or completed"),
 });
 
 export const taskQuerySchema = object({

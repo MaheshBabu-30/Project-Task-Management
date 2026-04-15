@@ -13,17 +13,19 @@ export const errorHandler: ErrorHandler = (err, c) => {
      422 – Validation Errors (Valibot)
   ---------------------------------- */
   if (err instanceof ValiError) {
-    return c.json(
-      {
-        success: false,
-        statusCode: 422,
-        errors: err.issues.map(issue => ({
-          field: issue.path?.[0]?.key || "unknown",
-          message: issue.message
-        }))
-      },
-      422
-    );
+    const seen = new Set<string>();
+    const errors = err.issues
+      .map(issue => ({
+        field: String(issue.path?.[0]?.key ?? "unknown"),
+        message: issue.message,
+      }))
+      .filter(({ field }) => {
+        if (seen.has(field)) return false;
+        seen.add(field);
+        return true;
+      });
+
+    return c.json({ success: false, statusCode: 422, errors }, 422);
   }
 
   /* ----------------------------------

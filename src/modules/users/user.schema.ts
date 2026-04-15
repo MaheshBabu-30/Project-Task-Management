@@ -1,23 +1,23 @@
-import { object, string, optional, number, minValue, maxValue, pipe, picklist, uuid, email, minLength, maxLength } from "valibot";
+import { object, string, optional, number, minValue, maxValue, pipe, picklist, uuid, email, minLength, maxLength, nonEmpty } from "valibot";
 
 // For creating a new user (superadmin creates admin/developer, admin creates developer only)
 export const createUserSchema = object({
-  name: pipe(string(), minLength(2, "Name must be at least 2 characters"), maxLength(150, "Name must be at most 150 characters")),
-  email: pipe(string(), email("Invalid email address")),
-  password: pipe(string(), minLength(8, "Password must be at least 8 characters"), maxLength(100, "Password too long")),
+  name: pipe(string(), nonEmpty("Name is required"), minLength(2, "Name must be at least 2 characters"), maxLength(150, "Name must be at most 150 characters")),
+  email: pipe(string(), nonEmpty("Email is required"), email("Invalid email address")),
+  password: pipe(string(), nonEmpty("Password is required"), minLength(8, "Password must be at least 8 characters"), maxLength(100, "Password too long")),
   role: picklist(["admin", "developer"] as const, "Role must be admin or developer"),
 });
 
 // For updating a user's basic info
 export const updateUserSchema = object({
-  name: optional(pipe(string(), minLength(2, "Name must be at least 2 characters"), maxLength(150, "Name must be at most 150 characters"))),
-  phone: optional(pipe(string(), minLength(7, "Phone must be at least 7 characters"), maxLength(20, "Phone must be at most 20 characters"))),
-  avatarUrl: optional(pipe(string(), maxLength(500, "URL too long"))),
+  name: optional(pipe(string(), nonEmpty("Name cannot be empty"), minLength(2, "Name must be at least 2 characters"), maxLength(150, "Name must be at most 150 characters"))),
+  phone: optional(pipe(string(), nonEmpty("Phone cannot be empty"), minLength(7, "Phone must be at least 7 characters"), maxLength(20, "Phone must be at most 20 characters"))),
+  avatarUrl: optional(pipe(string(), nonEmpty("Avatar URL cannot be empty"), maxLength(500, "URL too long"))),
 });
 
 // For an admin toggling a developer's status
 export const toggleUserStatusSchema = object({
-  status: picklist(["active", "inactive"] as const),
+  status: picklist(["active", "inactive"] as const, "Status must be active or inactive"),
 });
 
 // For searching/filtering users

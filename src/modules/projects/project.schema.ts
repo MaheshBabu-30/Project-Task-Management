@@ -1,19 +1,18 @@
-import { object, string, optional, number, minValue, maxValue, pipe, boolean, picklist, array, uuid, minLength, maxLength } from "valibot";
+import { object, string, optional, number, minValue, maxValue, pipe, boolean, picklist, array, uuid, minLength, maxLength, nonEmpty } from "valibot";
 
 export const createProjectSchema = object({
-  title: pipe(string(), minLength(1, "Title is required"), maxLength(200, "Title must be at most 200 characters")),
-  description: optional(pipe(string(), maxLength(2000, "Description too long"))),
-  logoUrl: optional(pipe(string(), maxLength(500, "URL too long"))),
-  assignedUserIds: optional(array(pipe(string(), uuid()))),
+  title: pipe(string(), nonEmpty("Title is required"), minLength(1, "Title is required"), maxLength(200, "Title must be at most 200 characters")),
+  description: optional(pipe(string(), nonEmpty("Description cannot be empty"), maxLength(2000, "Description too long"))),
+  logoUrl: optional(pipe(string(), nonEmpty("Logo URL cannot be empty"), maxLength(500, "URL too long"))),
+  assignedUserIds: optional(array(pipe(string(), uuid("Invalid user ID format")))),
 });
 
 export const updateProjectSchema = object({
-  title: optional(pipe(string(), minLength(1, "Title is required"), maxLength(200, "Title must be at most 200 characters"))),
-  description: optional(pipe(string(), maxLength(2000, "Description too long"))),
-  logoUrl: optional(pipe(string(), maxLength(500, "URL too long"))),
-  // "completed" removed — project auto-completes when all tasks are done
-  status: optional(picklist(["active", "on_hold"] as const)),
-  assignedUserIds: optional(array(pipe(string(), uuid()))),
+  title: optional(pipe(string(), nonEmpty("Title cannot be empty"), minLength(1, "Title is required"), maxLength(200, "Title must be at most 200 characters"))),
+  description: optional(pipe(string(), nonEmpty("Description cannot be empty"), maxLength(2000, "Description too long"))),
+  logoUrl: optional(pipe(string(), nonEmpty("Logo URL cannot be empty"), maxLength(500, "URL too long"))),
+  status: optional(picklist(["active", "on_hold"] as const, "Status must be active or on_hold")),
+  assignedUserIds: optional(array(pipe(string(), uuid("Invalid user ID format")))),
 });
 
 export const projectQuerySchema = object({
