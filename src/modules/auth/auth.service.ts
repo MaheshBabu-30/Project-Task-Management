@@ -12,19 +12,21 @@ import { env } from "../../config/env.js";
 
 const buildTokenPayload = async (user: { id: string; role: "superadmin" | "admin" | "developer"; status: "active" | "inactive" }) => {
   let orgId: string | undefined;
+  let orgName: string | undefined;
 
   if (user.role !== "superadmin") {
     const [membership] = await db
-      .select({ orgId: orgMembers.orgId })
+      .select({ orgId: orgMembers.orgId, orgName: organizations.name })
       .from(orgMembers)
       .innerJoin(organizations, eq(orgMembers.orgId, organizations.id))
       .where(and(eq(orgMembers.userId, user.id), isNull(organizations.deletedAt)))
       .limit(1);
 
     orgId = membership?.orgId;
+    orgName = membership?.orgName;
   }
 
-  return { userId: user.id, role: user.role, status: user.status, ...(orgId ? { orgId } : {}) };
+  return { userId: user.id, role: user.role, status: user.status, ...(orgId ? { orgId } : {}), ...(orgName ? { orgName } : {}) };
 };
 
 // ─── Session Management ───────────────────────────────────────────────────────
@@ -61,7 +63,7 @@ export const loginUser = async ({ email, password }: { email: string; password: 
   await createSession(user.id, refreshToken);
 
   return {
-    user: { id: user.id, name: user.name, email: user.email, role: user.role, orgId: payload.orgId },
+    user: { id: user.id, name: user.name, email: user.email, role: user.role, orgId: payload.orgId, orgName: payload.orgName },
     tokens: { accessToken, refreshToken },
   };
 };
@@ -181,7 +183,7 @@ export const verifyOtp = async (email: string, otp: string) => {
   await createSession(user.id, refreshToken);
 
   return {
-    user: { id: user.id, name: user.name, email: user.email, role: user.role, orgId: payload.orgId },
+    user: { id: user.id, name: user.name, email: user.email, role: user.role, orgId: payload.orgId, orgName: payload.orgName },
     tokens: { accessToken, refreshToken },
   };
 };
