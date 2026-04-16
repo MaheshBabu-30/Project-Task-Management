@@ -636,7 +636,7 @@ export const softDeleteTask = async (id: string, orgId?: string) => {
   if (!task) throw new AppError("Task not found", 404);
 
   if (task.status !== "completed") {
-    throw new AppError("Only completed tasks can be archived", 400);
+    throw new AppError("Only completed tasks can be deleted", 400);
   }
 
   await db.transaction(async (tx) => {
