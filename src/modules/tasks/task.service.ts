@@ -24,7 +24,7 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   to_do:       ["in_progress", "on_hold"],
   in_progress: ["on_hold", "completed"],
   on_hold:     ["in_progress", "to_do"],
-  completed:   ["in_progress"], // reopen — admin only
+  completed:   ["in_progress"], // reopen — admin and superadmin only
   overdue:     ["in_progress", "on_hold"],
 };
 
@@ -564,7 +564,7 @@ export const updateTaskStatus = async (
 
     // Only admins and superadmins can reopen a completed task
     if (task.status === "completed" && user.role === "developer") {
-      throw new AppError("Only admins can reopen completed tasks", 403);
+      throw new AppError("Only admins and superadmins can reopen completed tasks", 403);
     }
 
     const completedAt = newStatus === "completed" ? new Date() : null;
