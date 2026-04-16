@@ -1,7 +1,7 @@
 import bcrypt from "bcrypt";
 import { db } from "../../config/db.js";
-import { users, orgMembers } from "../../../drizzle/schema.js";
-import { eq, ilike, and, asc, desc, isNull, inArray, count } from "drizzle-orm";
+import { users, orgMembers, projectMembers, taskAssignees, tasks } from "../../../drizzle/schema.js";
+import { eq, ilike, and, asc, desc, isNull, inArray, notInArray, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
 interface UserQuery {
@@ -11,10 +11,13 @@ interface UserQuery {
   role?: "superadmin" | "admin" | "developer";
   status?: "active" | "inactive";
   orgId?: string;
+  projectId?: string;
+  taskId?: string;
   page?: number;
   limit?: number;
   sortBy?: string;
   order?: string;
+  unassigned?: boolean;
 }
 
 // ─── Create User ─────────────────────────────────────────────────────────────
@@ -52,24 +55,119 @@ export const createUser = async (
   });
 };
 
-// ─── Get Users (Scoped by Org) ────────────────────────────────────────────────
+// ─── Get Users (Scoped by Org / Project / Task) ──────────────────────────────
 
-export const getUsers = async (query: UserQuery, contextOrgId?: string) => {
-  const { id, name, email, role, status, orgId, page = 1, limit = 10, sortBy = "id", order = "asc" } = query;
+export const getUsers = async (
+  query: UserQuery,
+  contextOrgId?: string,
+  requesterId?: string,
+  requesterRole?: string
+) => {
+  const { id, name, email, role, status, orgId, projectId, taskId, unassigned, page = 1, limit = 10, sortBy = "id", order = "asc" } = query;
 
   const filters = [isNull(users.deletedAt)];
 
-  // 1. Scoping Logic
+  // ─── Developer Scoping ───────────────────────────────────────────────────────
+  // Developers can only see users within a specific project or task context.
+  if (requesterRole === "developer" && requesterId) {
+    if (taskId) {
+      // Verify the developer is a member of the project this task belongs to
+      const [taskRow] = await db
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(and(eq(tasks.id, taskId), isNull(tasks.deletedAt)))
+        .limit(1);
+
+      if (!taskRow) throw new AppError("Task not found", 404);
+
+      const [membership] = await db
+        .select({ userId: projectMembers.userId })
+        .from(projectMembers)
+        .where(and(eq(projectMembers.projectId, taskRow.projectId), eq(projectMembers.userId, requesterId)))
+        .limit(1);
+
+      if (!membership) throw new AppError("You are not a member of this project", 403);
+
+      // Scope to users assigned to this task only
+      const assigneeSubquery = db
+        .select({ userId: taskAssignees.userId })
+        .from(taskAssignees)
+        .where(eq(taskAssignees.taskId, taskId));
+
+      filters.push(inArray(users.id, assigneeSubquery));
+
+    } else if (projectId) {
+      // Verify the developer is a member of this project
+      const [membership] = await db
+        .select({ userId: projectMembers.userId })
+        .from(projectMembers)
+        .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, requesterId)))
+        .limit(1);
+
+      if (!membership) throw new AppError("You are not a member of this project", 403);
+
+      // Scope to members of this project only
+      const projectMemberSubquery = db
+        .select({ userId: projectMembers.userId })
+        .from(projectMembers)
+        .where(eq(projectMembers.projectId, projectId));
+
+      filters.push(inArray(users.id, projectMemberSubquery));
+
+    } else {
+      // No project or task context — developer sees no one
+      return { data: [], totalRecords: 0 };
+    }
+
+    // Apply standard filters after scoping (skip org/role filters for developer)
+    if (id) filters.push(eq(users.id, id));
+    if (name) filters.push(ilike(users.name, `%${name}%`));
+    if (status) filters.push(eq(users.status, status));
+
+    const whereCondition = and(...filters);
+    const offset = (page - 1) * limit;
+
+    const validColumns: Record<string, any> = { id: users.id, name: users.name, email: users.email, role: users.role, status: users.status, createdAt: users.createdAt };
+    const orderColumn = validColumns[sortBy] || users.id;
+    const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
+
+    const data = await db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        role: users.role,
+        status: users.status,
+        phone: users.phone,
+        avatarUrl: users.avatarUrl,
+        lastLoginAt: users.lastLoginAt,
+        createdAt: users.createdAt
+      })
+      .from(users)
+      .where(whereCondition)
+      .orderBy(orderDirection)
+      .limit(limit)
+      .offset(offset);
+
+    const countResult = await db.select({ total: count() }).from(users).where(whereCondition);
+
+    return { data, totalRecords: countResult[0]?.total ?? 0 };
+  }
+
+  // ─── Admin / Superadmin Scoping ──────────────────────────────────────────────
   const targetOrgId = contextOrgId || orgId;
 
-  if (targetOrgId) {
+  if (unassigned && requesterRole === "superadmin") {
+    // Return users who are not a member of any organization
+    const assignedSubquery = db.select({ userId: orgMembers.userId }).from(orgMembers);
+    filters.push(notInArray(users.id, assignedSubquery));
+  } else if (targetOrgId) {
     // Join with orgMembers to find users in this org
     const subquery = db
       .select({ userId: orgMembers.userId })
       .from(orgMembers)
       .where(eq(orgMembers.orgId, targetOrgId));
-    
-    // We add an IN clause to the main user query
+
     filters.push(inArray(users.id, subquery));
   }
 

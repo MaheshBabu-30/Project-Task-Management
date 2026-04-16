@@ -11,7 +11,7 @@ router.get("/", getTasksList);
 router.get("/:id", getTaskDetails);
 
 router.post("/", roleMiddleware(["admin", "superadmin"]), createNewTask);
-router.patch("/:id", updateTaskDetails);
+router.patch("/:id", roleMiddleware(["admin", "superadmin", "developer"]), updateTaskDetails);
 router.delete("/:id", roleMiddleware(["admin", "superadmin"]), deleteTaskRecord);
 
 export default router;

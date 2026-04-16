@@ -1,4 +1,4 @@
-import { object, string, optional, number, minValue, maxValue, pipe, picklist, uuid, email, minLength, maxLength, nonEmpty, regex } from "valibot";
+import { object, string, optional, number, minValue, maxValue, pipe, picklist, uuid, email, minLength, maxLength, nonEmpty, regex, boolean } from "valibot";
 
 // For creating a new user (superadmin creates admin/developer, admin creates developer only)
 export const createUserSchema = object({
@@ -28,8 +28,11 @@ export const userQuerySchema = object({
   role: optional(picklist(["superadmin", "admin", "developer"] as const)),
   status: optional(picklist(["active", "inactive"] as const)),
   orgId: optional(pipe(string(), uuid())),
+  projectId: optional(pipe(string(), uuid())),
+  taskId: optional(pipe(string(), uuid())),
   page: optional(pipe(number(), minValue(1, "Page must be >= 1"), maxValue(10000, "Page must be <= 10000"))),
   limit: optional(pipe(number(), minValue(1, "Limit must be >= 1"), maxValue(100, "Limit must be <= 100"))),
   sortBy: optional(picklist(["name", "email", "role", "status", "createdAt"] as const)),
   order: optional(picklist(["asc", "desc"] as const)),
+  unassigned: optional(boolean()),
 });
