@@ -146,6 +146,8 @@ export const updateComment = async (commentId: string, body: string, user: User)
     .where(eq(comments.id, commentId))
     .returning();
 
+  if (!updated) throw new AppError("Comment not found", 404);
+
   const [author] = updated.authorId
     ? await db
         .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })

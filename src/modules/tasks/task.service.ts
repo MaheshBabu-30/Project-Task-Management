@@ -580,8 +580,10 @@ export const updateTaskStatus = async (
     return updated;
   });
 
+  if (!statusResult) throw new AppError("Task not found", 404);
+
   // Fire-and-forget notifications AFTER transaction commits to avoid connection race conditions
-  if (newStatus === "completed" && statusResult) {
+  if (newStatus === "completed") {
     db.select({ userId: taskAssignees.userId })
       .from(taskAssignees)
       .where(eq(taskAssignees.taskId, id))
