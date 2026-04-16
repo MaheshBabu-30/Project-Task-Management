@@ -165,5 +165,5 @@ export const removeAttachment = async (attachmentId: string, user: User) => {
 
   await db.delete(attachments).where(eq(attachments.id, attachmentId));
 
-  return { message: "Attachment removed successfully", s3Key: attachment.s3Key };
+  return { message: "Attachment deleted successfully" };
 };

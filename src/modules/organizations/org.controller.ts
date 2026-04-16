@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { createOrgSchema, addMemberSchema, orgQuerySchema } from "./org.schema.js";
 import { buildPagination } from "../../utils/pagination.js";
 import { uuidSchema } from "../../utils/schema.js";
+import { AppError } from "../../utils/errors.js";
 import {
   createOrganization,
   getAllOrganizations,
@@ -71,7 +72,7 @@ export const getOrgDetails = async (c: Context) => {
 
   // Admin and developer can only see their own org
   if ((user.role === "admin" || user.role === "developer") && user.orgId !== orgId) {
-    return c.json({ message: "Access denied to this organization" }, 403);
+    throw new AppError("Access denied to this organization", 403);
   }
 
   const org = await getOrganizationById(orgId);
@@ -108,7 +109,7 @@ export const addDeveloper = async (c: Context) => {
   const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
 
   if (user.role !== "superadmin" && !user.orgId) {
-    return c.json({ message: "Admin is not assigned to an organization" }, 400);
+    throw new AppError("Admin is not assigned to an organization", 400);
   }
 
   const body = await c.req.json();
@@ -158,7 +159,7 @@ export const removeMember = async (c: Context) => {
 
   // Admin can only remove from their own org
   if (user.role === "admin" && user.orgId !== orgId) {
-    return c.json({ message: "Access denied to this organization" }, 403);
+    throw new AppError("Access denied to this organization", 403);
   }
 
   const result = await removeMemberFromOrg(orgId, userId);
