@@ -105,16 +105,17 @@ export const assignAdmin = async (c: Context) => {
 
 export const addDeveloper = async (c: Context) => {
   const user = c.get("user");
+  const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
 
-  if (!user.orgId) {
+  if (user.role !== "superadmin" && !user.orgId) {
     return c.json({ message: "Admin is not assigned to an organization" }, 400);
   }
 
-  const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
   const body = await c.req.json();
   const { userId } = parse(addMemberSchema, body);
 
-  const member = await addDeveloperToOrg(orgId, userId, user.orgId);
+  const effectiveOrgId = user.role === "superadmin" ? orgId : user.orgId;
+  const member = await addDeveloperToOrg(orgId, userId, effectiveOrgId);
 
   createAuditLog({
     orgId,
