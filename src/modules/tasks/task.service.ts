@@ -646,5 +646,5 @@ export const softDeleteTask = async (id: string, orgId?: string) => {
     await updateProjectStatusIfComplete(tx, task.projectId);
   });
 
-  return { message: "Task archived successfully" };
+  return { message: "Task deleted successfully" };
 };
