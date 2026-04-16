@@ -18,7 +18,7 @@ export const addMemberSchema = object({
 });
 
 export const orgQuerySchema = object({
-  page: optional(pipe(number(), minValue(1, "Page must be >= 1"), maxValue(10000, "Page must be <= 10000"))),
+  page: optional(pipe(number(), minValue(1, "Page must be >= 1"), maxValue(500, "Page must be <= 500"))),
   limit: optional(pipe(number(), minValue(1, "Limit must be >= 1"), maxValue(100, "Limit must be <= 100"))),
   name: optional(pipe(string(), minLength(1), maxLength(200))),
   slug: optional(pipe(string(), minLength(1), maxLength(100))),

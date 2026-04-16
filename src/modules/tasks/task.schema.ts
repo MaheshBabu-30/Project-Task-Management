@@ -33,7 +33,7 @@ export const taskQuerySchema = object({
   projectId: optional(pipe(string(), uuid())),
   parentTaskId: optional(pipe(string(), uuid())),
   assignedUserId: optional(pipe(string(), uuid())),
-  page: optional(pipe(number(), minValue(1, "Page must be >= 1"), maxValue(10000, "Page must be <= 10000"))),
+  page: optional(pipe(number(), minValue(1, "Page must be >= 1"), maxValue(500, "Page must be <= 500"))),
   limit: optional(pipe(number(), minValue(1), maxValue(100, "Limit must be <= 100"))),
   sortBy: optional(picklist(["title", "status", "priority", "dueDate", "createdAt"] as const)),
   order: optional(picklist(["asc", "desc"] as const)),

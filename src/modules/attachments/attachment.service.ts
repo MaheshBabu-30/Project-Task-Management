@@ -6,6 +6,7 @@ import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { s3Client, B2_BUCKET_NAME } from "../../config/s3.js";
 
 type User = { userId: string; role: string; orgId?: string };
+type UserSummary = { id: string; name: string | null; email: string; avatarUrl: string | null };
 
 // ─── Verify task access ───────────────────────────────────────────────────────
 
@@ -77,13 +78,13 @@ export const getAttachments = async (
 
   const whereCondition = and(...conditions);
 
-  const validColumns: Record<string, any> = {
+  const validColumns = {
     id: attachments.id,
     fileName: attachments.fileName,
     fileSize: attachments.fileSize,
     createdAt: attachments.createdAt,
-  };
-  const orderColumn = validColumns[sortBy] ?? attachments.createdAt;
+  } as const;
+  const orderColumn = (sortBy in validColumns ? validColumns[sortBy as keyof typeof validColumns] : attachments.createdAt);
   const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
   const [rawData, countResult] = await Promise.all([
@@ -93,7 +94,7 @@ export const getAttachments = async (
 
   // Batch fetch uploaders
   const uploaderIds = [...new Set(rawData.map((a) => a.uploadedBy).filter(Boolean))] as string[];
-  const uploadersMap: Record<string, any> = {};
+  const uploadersMap: Record<string, UserSummary> = {};
   if (uploaderIds.length > 0) {
     const uploaders = await db
       .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })

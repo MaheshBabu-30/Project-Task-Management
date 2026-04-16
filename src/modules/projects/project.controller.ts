@@ -16,6 +16,7 @@ import {
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../utils/pagination.js";
 import { createAuditLog } from "../audit-logs/audit-log.service.js";
+import { catchError } from "../../utils/logger.js";
 
 const getIp = (c: Context) =>
   c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? undefined;
@@ -49,7 +50,7 @@ export const createNewProject = async (c: Context) => {
       entityId: project.id,
       after: project,
       ipAddress: getIp(c),
-    }).catch(console.error);
+    }).catch(catchError("project.controller:auditLog"));
 
     return successResponse(c, project, 201);
   }
@@ -74,7 +75,7 @@ export const createNewProject = async (c: Context) => {
     entityId: project.id,
     after: project,
     ipAddress: getIp(c),
-  }).catch(console.error);
+  }).catch(catchError("project.controller:auditLog"));
 
   return successResponse(c, project, 201);
 };
@@ -134,7 +135,7 @@ export const updateProjectDetails = async (c: Context) => {
     entityId: id,
     after: updated,
     ipAddress: getIp(c),
-  }).catch(console.error);
+  }).catch(catchError("project.controller:auditLog"));
 
   return successResponse(c, updated);
 };
@@ -153,7 +154,7 @@ export const deleteProjectRecord = async (c: Context) => {
     entityType: "project",
     entityId: id,
     ipAddress: getIp(c),
-  }).catch(console.error);
+  }).catch(catchError("project.controller:auditLog"));
 
   return successResponse(c, result);
 };

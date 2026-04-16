@@ -8,6 +8,6 @@ export const roleMiddleware = (roles: string[] = []) => {
       return c.json({ message: "Forbidden" }, 403);
     }
 
-    await next();
+    return next();
   };
 };

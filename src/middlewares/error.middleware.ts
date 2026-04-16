@@ -1,13 +1,14 @@
 import { ValiError } from "valibot";
 import type { ErrorHandler } from "hono";
-import { AppError } from "../utils/errors.js";
+import { AppError, isStatusError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
 
 /**
  * Global error handler
  * This is the LAST safety net of the application
  */
 export const errorHandler: ErrorHandler = (err, c) => {
-  console.error("❌ ERROR:", err);
+  logger.error("Unhandled error", err, "errorHandler");
 
   /* ----------------------------------
      422 – Validation Errors (Valibot)
@@ -31,15 +32,17 @@ export const errorHandler: ErrorHandler = (err, c) => {
   /* ----------------------------------
      Custom application errors
   ---------------------------------- */
-  if (err instanceof AppError || (err as any).status) {
-    const status = err instanceof AppError ? err.status : (err as any).status;
+  if (err instanceof AppError) {
     return c.json(
-      {
-        success: false,
-        statusCode: status,
-        message: err.message
-      },
-      status as any
+      { success: false, statusCode: err.status, message: err.message },
+      err.status as Parameters<typeof c.json>[1],
+    );
+  }
+
+  if (isStatusError(err)) {
+    return c.json(
+      { success: false, statusCode: err.status, message: err.message },
+      err.status as Parameters<typeof c.json>[1],
     );
   }
 

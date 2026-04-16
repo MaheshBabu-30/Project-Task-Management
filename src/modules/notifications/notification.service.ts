@@ -28,7 +28,8 @@ export const getNotifications = async (
 
   const filters = [eq(notifications.userId, userId)];
   if (unread === true) filters.push(isNull(notifications.readAt));
-  if (type) filters.push(eq(notifications.type, type as any));
+  type NotificationType = "task_assigned" | "task_due_soon" | "task_overdue" | "task_completed" | "comment_added" | "member_removed";
+  if (type) filters.push(eq(notifications.type, type as NotificationType));
 
   const whereCondition = and(...filters);
   const orderDirection = order === "asc" ? asc(notifications.createdAt) : desc(notifications.createdAt);

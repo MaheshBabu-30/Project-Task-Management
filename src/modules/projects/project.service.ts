@@ -3,6 +3,16 @@ import { projects, tasks, projectMembers, orgMembers, organizations, users, task
 import { eq, ilike, and, asc, desc, isNull, isNotNull, inArray, notInArray, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
+type UserSummary = { id: string; name: string | null; email: string; avatarUrl: string | null };
+
+interface UpdateProjectData {
+  title?: string;
+  description?: string;
+  logoUrl?: string;
+  status?: "active" | "on_hold" | "completed";
+  assignedUserIds?: string[];
+}
+
 interface ProjectQuery {
   id?: string;
   orgId?: string;
@@ -123,8 +133,13 @@ export const getProjects = async (
   const offset = (page - 1) * limit;
 
   // 3. Sorting logic
-  const validColumns: Record<string, any> = { id: projects.id, title: projects.title, status: projects.status, createdAt: projects.createdAt };
-  const orderColumn = validColumns[sortBy] || projects.id;
+  const validColumns = {
+    id: projects.id,
+    title: projects.title,
+    status: projects.status,
+    createdAt: projects.createdAt,
+  } as const;
+  const orderColumn = (sortBy in validColumns ? validColumns[sortBy as keyof typeof validColumns] : projects.id);
   const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
   const data = await db
@@ -137,7 +152,7 @@ export const getProjects = async (
 
   // 4. Batch fetch members (Fix N+1)
   const projectIds = data.map((p) => p.id);
-  let membersMap: Record<string, any[]> = {};
+  let membersMap: Record<string, UserSummary[]> = {};
 
   if (projectIds.length > 0) {
     const allMembers = await db
@@ -167,7 +182,7 @@ export const getProjects = async (
 
   // Batch fetch creators
   const creatorIds = [...new Set(data.map((p) => p.createdBy).filter(Boolean))] as string[];
-  const creatorsMap: Record<string, any> = {};
+  const creatorsMap: Record<string, UserSummary> = {};
   if (creatorIds.length > 0) {
     const allCreators = await db
       .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
@@ -244,7 +259,7 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
 
 // ─── Update Project ──────────────────────────────────────────────────────────
 
-export const updateProject = async (id: string, data: any, orgId?: string) => {
+export const updateProject = async (id: string, data: UpdateProjectData, orgId?: string) => {
   const { assignedUserIds, ...projectData } = data;
 
   const result = await db.transaction(async (tx) => {

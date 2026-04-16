@@ -3,6 +3,8 @@ import { organizations, orgMembers, users, projects, projectMembers, taskAssigne
 import { eq, and, isNull, inArray, ilike, asc, desc, count } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
+type UserSummary = { id: string; name: string | null; email: string; avatarUrl: string | null };
+
 // ─── Create Organization ──────────────────────────────────────────────────────
 
 export const createOrganization = async (data: {
@@ -46,13 +48,13 @@ export const getAllOrganizations = async (query?: {
 
   const whereCondition = and(...conditions);
 
-  const validColumns: Record<string, any> = {
+  const validColumns = {
     id: organizations.id,
     name: organizations.name,
     slug: organizations.slug,
     createdAt: organizations.createdAt,
-  };
-  const orderColumn = validColumns[sortBy] ?? organizations.createdAt;
+  } as const;
+  const orderColumn = (sortBy in validColumns ? validColumns[sortBy as keyof typeof validColumns] : organizations.createdAt);
   const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
   const [orgs, countResult] = await Promise.all([
@@ -74,7 +76,7 @@ export const getAllOrganizations = async (query?: {
 
   // Batch fetch owner details
   const ownerIds = orgs.map((o) => o.ownerId).filter(Boolean) as string[];
-  const ownersMap: Record<string, any> = {};
+  const ownersMap: Record<string, UserSummary> = {};
   if (ownerIds.length > 0) {
     const owners = await db
       .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })

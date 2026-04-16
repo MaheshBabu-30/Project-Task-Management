@@ -8,3 +8,13 @@ export class AppError extends Error {
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
+
+interface StatusError extends Error {
+  status: number;
+}
+
+/** Type guard: true when an unknown value has a numeric `.status` property. */
+export const isStatusError = (err: unknown): err is StatusError =>
+  err instanceof Error &&
+  "status" in err &&
+  typeof (err as StatusError).status === "number";

@@ -21,7 +21,7 @@ export const projectQuerySchema = object({
   title: optional(pipe(string(), maxLength(200, "Title filter must be at most 200 characters"))),
   createdBy: optional(pipe(string(), uuid())),
   status: optional(picklist(["active", "on_hold", "completed"] as const)),
-  page: optional(pipe(number(), minValue(1, "Page must be >= 1"), maxValue(10000, "Page must be <= 10000"))),
+  page: optional(pipe(number(), minValue(1, "Page must be >= 1"), maxValue(500, "Page must be <= 500"))),
   limit: optional(pipe(number(), minValue(1, "Limit must be >= 1"), maxValue(100, "Limit must be <= 100"))),
   sortBy: optional(picklist(["title", "status", "createdAt"] as const)),
   order: optional(picklist(["asc", "desc"] as const)),

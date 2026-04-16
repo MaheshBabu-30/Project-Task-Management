@@ -16,6 +16,7 @@ import {
 import { successResponse } from "../../utils/response.js";
 import { createAuditLog } from "../audit-logs/audit-log.service.js";
 import { createNotification } from "../notifications/notification.service.js";
+import { catchError } from "../../utils/logger.js";
 
 const getIp = (c: Context) =>
   c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? undefined;
@@ -36,7 +37,7 @@ export const createOrg = async (c: Context) => {
       entityId: org.id,
       after: org,
       ipAddress: getIp(c),
-    }).catch(console.error);
+    }).catch(catchError("org.controller:auditLog"));
   }
 
   return successResponse(c, org, 201);
@@ -97,7 +98,7 @@ export const assignAdmin = async (c: Context) => {
     entityId: orgId,
     after: { userId },
     ipAddress: getIp(c),
-  }).catch(console.error);
+  }).catch(catchError("org.controller:auditLog"));
 
   return successResponse(c, result);
 };
@@ -126,7 +127,7 @@ export const addDeveloper = async (c: Context) => {
     entityId: orgId,
     after: { userId },
     ipAddress: getIp(c),
-  }).catch(console.error);
+  }).catch(catchError("org.controller:auditLog"));
 
   return successResponse(c, member, 201);
 };
@@ -145,7 +146,7 @@ export const deleteOrg = async (c: Context) => {
     entityType: "organization",
     entityId: orgId,
     ipAddress: getIp(c),
-  }).catch(console.error);
+  }).catch(catchError("org.controller:auditLog"));
 
   return successResponse(c, result);
 };
@@ -172,7 +173,7 @@ export const removeMember = async (c: Context) => {
     entityId: orgId,
     after: { removedUserId: userId },
     ipAddress: getIp(c),
-  }).catch(console.error);
+  }).catch(catchError("org.controller:auditLog"));
 
   createNotification({
     userId,
@@ -181,7 +182,7 @@ export const removeMember = async (c: Context) => {
     body: "You no longer have access to this organization's projects and tasks.",
     entityType: "organization",
     entityId: orgId,
-  }).catch(console.error);
+  }).catch(catchError("org.controller:removeMember:notify"));
 
   return successResponse(c, result);
 };

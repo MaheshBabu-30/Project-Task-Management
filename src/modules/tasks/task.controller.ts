@@ -13,6 +13,7 @@ import {
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../utils/pagination.js";
 import { createAuditLog } from "../audit-logs/audit-log.service.js";
+import { catchError } from "../../utils/logger.js";
 
 const getIp = (c: Context) =>
   c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? undefined;
@@ -38,7 +39,7 @@ export const createNewTask = async (c: Context) => {
     entityId: task.id,
     after: task,
     ipAddress: getIp(c),
-  }).catch(console.error);
+  }).catch(catchError("task.controller:auditLog"));
 
   return successResponse(c, task, 201);
 };
@@ -103,7 +104,7 @@ export const updateTaskDetails = async (c: Context) => {
       entityId: id,
       after: { status },
       ipAddress: getIp(c),
-    }).catch(console.error);
+    }).catch(catchError("task.controller:auditLog"));
 
     return successResponse(c, updated);
   }
@@ -120,7 +121,7 @@ export const updateTaskDetails = async (c: Context) => {
     entityId: id,
     after: updated,
     ipAddress: getIp(c),
-  }).catch(console.error);
+  }).catch(catchError("task.controller:auditLog"));
 
   return successResponse(c, updated);
 };
@@ -139,7 +140,7 @@ export const deleteTaskRecord = async (c: Context) => {
     entityType: "task",
     entityId: id,
     ipAddress: getIp(c),
-  }).catch(console.error);
+  }).catch(catchError("task.controller:auditLog"));
 
   return successResponse(c, result);
 };

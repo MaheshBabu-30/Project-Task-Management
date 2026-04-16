@@ -1,15 +1,23 @@
 import { db } from "../../config/db.js";
 import { tasks, projects, taskAssignees, projectMembers, orgMembers, users } from "../../../drizzle/schema.js";
-import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count } from "drizzle-orm";
+import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, type InferSelectModel } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 import { createNotification } from "../notifications/notification.service.js";
+import { catchError } from "../../utils/logger.js";
+
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type TaskStatus = "to_do" | "in_progress" | "on_hold" | "completed" | "overdue";
+type TaskPriority = "low" | "medium" | "high" | "urgent";
+type UserSummary = { id: string; name: string | null; email: string; avatarUrl: string | null };
+type TaskRecord = InferSelectModel<typeof tasks>;
 
 interface TaskQuery {
   id?: string;
-  status?: "to_do" | "in_progress" | "on_hold" | "overdue" | "completed";
-  priority?: "low" | "medium" | "high" | "urgent";
+  status?: TaskStatus;
+  priority?: TaskPriority;
   search?: string;
   projectId?: string;
+  parentTaskId?: string;
   assignedUserId?: string;
   page?: number;
   limit?: number;
@@ -17,6 +25,25 @@ interface TaskQuery {
   order?: string;
   showDeleted?: boolean;
 }
+
+interface UpdateTaskData {
+  title?: string;
+  description?: string;
+  priority?: TaskPriority;
+  dueDate?: string | null;
+  status?: "to_do" | "in_progress" | "on_hold" | "completed";
+  assignedUserIds?: string[];
+}
+
+type TaskUpdatePayload = {
+  title?: string;
+  description?: string;
+  priority?: TaskPriority;
+  dueDate?: string | null;
+  status?: TaskStatus;
+  completedAt?: Date | null;
+  updatedAt?: Date;
+};
 
 // ─── Allowed Task Status Transitions ─────────────────────────────────────────
 
@@ -30,7 +57,7 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
 
 // ─── Helper: Update Project Status ───────────────────────────────────────────
 
-const updateProjectStatusIfComplete = async (tx: any, projectId: string) => {
+const updateProjectStatusIfComplete = async (tx: DbTransaction, projectId: string) => {
   // Check if all ROOT tasks in this project are completed (subtasks don't count)
   const pendingTasks = await tx
     .select({ id: tasks.id })
@@ -146,7 +173,7 @@ export const createTask = async (data: {
           body: `You were assigned to: "${task.title}"`,
           entityType: "task",
           entityId: task.id,
-        }).catch(console.error);
+        }).catch(catchError("createTask:notify"));
       }
     }
 
@@ -181,8 +208,7 @@ export const getTasks = async (
   query: TaskQuery,
   user: { userId: string; role: string; orgId?: string }
 ) => {
-  const { id, status, priority, search, projectId, assignedUserId, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
-  const parentTaskId = (query as any).parentTaskId;
+  const { id, status, priority, search, projectId, parentTaskId, assignedUserId, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
 
   const filters = [showDeleted ? isNotNull(tasks.deletedAt) : isNull(tasks.deletedAt)];
 
@@ -234,15 +260,15 @@ export const getTasks = async (
   const offset = (page - 1) * limit;
 
   // 4. Sorting logic
-  const columnMap: Record<string, any> = {
+  const columnMap = {
     id: tasks.id,
     title: tasks.title,
     status: tasks.status,
     priority: tasks.priority,
     dueDate: tasks.dueDate,
-    createdAt: tasks.createdAt
-  };
-  const orderColumn = columnMap[sortBy] || tasks.id;
+    createdAt: tasks.createdAt,
+  } as const;
+  const orderColumn = (sortBy in columnMap ? columnMap[sortBy as keyof typeof columnMap] : tasks.id);
   const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
   const data = await db
@@ -255,7 +281,7 @@ export const getTasks = async (
 
   // 5. Fetch all assignees for the tasks in one batch query (Fix N+1)
   const taskIds = data.map((t) => t.id);
-  let assigneesMap: Record<string, any[]> = {};
+  let assigneesMap: Record<string, UserSummary[]> = {};
 
   if (taskIds.length > 0) {
     const allAssignees = await db
@@ -285,7 +311,7 @@ export const getTasks = async (
 
   // Batch fetch creators
   const creatorIds = [...new Set(data.map((t) => t.createdBy).filter(Boolean))] as string[];
-  const creatorsMap: Record<string, any> = {};
+  const creatorsMap: Record<string, UserSummary> = {};
   if (creatorIds.length > 0) {
     const allCreators = await db
       .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
@@ -360,7 +386,8 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
     : [null];
 
   // 4. Fetch subtasks (only for root tasks) with their assignees
-  let subtasks: any[] = [];
+  type SubtaskWithAssignees = TaskRecord & { assignees: UserSummary[] };
+  let subtasks: SubtaskWithAssignees[] = [];
   if (!task.parentTaskId) {
     const rawSubtasks = await db
       .select()
@@ -381,13 +408,13 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
         .innerJoin(users, eq(taskAssignees.userId, users.id))
         .where(inArray(taskAssignees.taskId, subtaskIds));
 
-      const subtaskAssigneesMap: Record<string, any[]> = {};
+      const subtaskAssigneesMap: Record<string, UserSummary[]> = {};
       subtaskAssigneeRows.forEach((a) => {
         if (!subtaskAssigneesMap[a.taskId!]) subtaskAssigneesMap[a.taskId!] = [];
         subtaskAssigneesMap[a.taskId!]!.push({ id: a.id, name: a.name, email: a.email, avatarUrl: a.avatarUrl });
       });
 
-      subtasks = rawSubtasks.map((s) => ({ ...s, assignees: subtaskAssigneesMap[s.id] || [] }));
+      subtasks = rawSubtasks.map((s) => ({ ...s, assignees: subtaskAssigneesMap[s.id] ?? [] }));
     }
   }
 
@@ -396,7 +423,7 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
 
 // ─── Update Task ──────────────────────────────────────────────────────────────
 
-export const updateTask = async (id: string, data: any, orgId?: string) => {
+export const updateTask = async (id: string, data: UpdateTaskData, orgId?: string) => {
   const { assignedUserIds, ...updateData } = data;
 
   const result = await db.transaction(async (tx) => {
@@ -423,9 +450,8 @@ export const updateTask = async (id: string, data: any, orgId?: string) => {
     }
 
     // 3. Update Task
-    const preparedData: any = { ...updateData };
-    if (data.dueDate) preparedData.dueDate = data.dueDate;
-    preparedData.updatedAt = new Date();
+    const preparedData: TaskUpdatePayload = { ...updateData, updatedAt: new Date() };
+    if (data.dueDate !== undefined) preparedData.dueDate = data.dueDate;
 
     // Set completedAt when transitioning to/from completed
     if (data.status === "completed" && task.status !== "completed") {
@@ -490,7 +516,7 @@ export const updateTask = async (id: string, data: any, orgId?: string) => {
             body: `You were assigned to: "${updated.title}"`,
             entityType: "task",
             entityId: id,
-          }).catch(console.error);
+          }).catch(catchError("updateTask:notify"));
         }
       }
     }
@@ -571,7 +597,7 @@ export const updateTaskStatus = async (
 
     const [updated] = await tx
       .update(tasks)
-      .set({ status: newStatus as any, completedAt, updatedAt: new Date() })
+      .set({ status: newStatus as TaskStatus, completedAt, updatedAt: new Date() })
       .where(eq(tasks.id, id))
       .returning();
 
@@ -596,10 +622,10 @@ export const updateTaskStatus = async (
             body: `"${statusResult.title}" has been marked as completed.`,
             entityType: "task",
             entityId: id,
-          }).catch(console.error);
+          }).catch(catchError("updateTaskStatus:notify"));
         }
       })
-      .catch(console.error);
+      .catch(catchError("updateTaskStatus:fetchAssignees"));
   }
 
   // Fetch assignees with user info to return consistent shape

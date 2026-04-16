@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { auditLogs, users, organizations } from "../../../drizzle/schema.js";
-import { eq, and, gte, lte, ilike, asc, desc, count, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, ilike, asc, desc, count, inArray, type SQL } from "drizzle-orm";
 
 // ─── Create Audit Log (internal helper) ──────────────────────────────────────
 
@@ -41,7 +41,10 @@ export const getAuditLogs = async (
   const { page = 1, limit = 20, orgId, actorId, entityType, action, from, to, sortBy = "createdAt", order = "desc" } = query;
   const offset = (page - 1) * limit;
 
-  const filters: any[] = [];
+  type ActorSummary = { id: string; name: string | null; email: string };
+  type OrgSummary = { id: string; name: string; slug: string };
+
+  const filters: SQL<unknown>[] = [];
 
   // Admins are always locked to their org
   const targetOrgId = scopedOrgId ?? orgId;
@@ -55,12 +58,12 @@ export const getAuditLogs = async (
 
   const whereCondition = filters.length > 0 ? and(...filters) : undefined;
 
-  const validColumns: Record<string, any> = {
+  const validColumns = {
     createdAt: auditLogs.createdAt,
     action: auditLogs.action,
     entityType: auditLogs.entityType,
-  };
-  const orderColumn = validColumns[sortBy] ?? auditLogs.createdAt;
+  } as const;
+  const orderColumn = (sortBy in validColumns ? validColumns[sortBy as keyof typeof validColumns] : auditLogs.createdAt);
   const orderDirection = order === "asc" ? asc(orderColumn) : desc(orderColumn);
 
   const [rawData, countResult] = await Promise.all([
@@ -78,8 +81,8 @@ export const getAuditLogs = async (
   const actorIds = [...new Set(rawData.map((l) => l.actorId).filter(Boolean))] as string[];
   const orgIds = [...new Set(rawData.map((l) => l.orgId).filter(Boolean))] as string[];
 
-  const actorsMap: Record<string, any> = {};
-  const orgsMap: Record<string, any> = {};
+  const actorsMap: Record<string, ActorSummary> = {};
+  const orgsMap: Record<string, OrgSummary> = {};
 
   await Promise.all([
     actorIds.length > 0

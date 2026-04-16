@@ -3,6 +3,9 @@ import { comments, tasks, projects, taskAssignees, users } from "../../../drizzl
 import { eq, and, isNull, asc, desc, count, inArray } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 import { createNotification } from "../notifications/notification.service.js";
+import { catchError } from "../../utils/logger.js";
+
+type UserSummary = { id: string; name: string | null; email: string; avatarUrl: string | null };
 
 type User = { userId: string; role: string; orgId?: string };
 
@@ -68,7 +71,7 @@ export const getComments = async (
 
   // Batch fetch authors
   const authorIds = [...new Set(rawData.map((c) => c.authorId).filter(Boolean))] as string[];
-  const authorsMap: Record<string, any> = {};
+  const authorsMap: Record<string, UserSummary> = {};
   if (authorIds.length > 0) {
     const authors = await db
       .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
@@ -109,10 +112,10 @@ export const createComment = async (taskId: string, body: string, user: User) =>
           body: `${body.slice(0, 100)}${body.length > 100 ? "..." : ""}`,
           entityType: "task",
           entityId: taskId,
-        }).catch(console.error);
+        }).catch(catchError("createComment:notify"));
       }
     })
-    .catch(console.error);
+    .catch(catchError("createComment:fetchAssignees"));
 
   const [author] = await db
     .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
