@@ -80,14 +80,36 @@ export const getTaskDetails = async (c: Context) => {
   return successResponse(c, task);
 };
 
-// ─── Update Task (ADMIN full update) ─────────────────────────────────────────
+// ─── Update Task ──────────────────────────────────────────────────────────────
+// admin/superadmin: can update all fields
+// developer: can only update status
 
 export const updateTaskDetails = async (c: Context) => {
   const user = c.get("user");
   const id = parse(uuidSchema("Task ID"), c.req.param("id"));
   const body = await c.req.json();
-  const data = parse(updateTaskSchema, body);
 
+  if (user.role === "developer") {
+    // Developer: only status update allowed
+    const { status } = parse(updateTaskStatusSchema, body);
+
+    const updated = await updateTaskStatus(id, status, user);
+
+    createAuditLog({
+      orgId: user.orgId,
+      actorId: user.userId,
+      action: "task.status_updated",
+      entityType: "task",
+      entityId: id,
+      after: { status },
+      ipAddress: getIp(c),
+    }).catch(console.error);
+
+    return successResponse(c, updated);
+  }
+
+  // Admin / Superadmin: full update
+  const data = parse(updateTaskSchema, body);
   const updated = await updateTask(id, data, user.orgId);
 
   createAuditLog({
@@ -97,29 +119,6 @@ export const updateTaskDetails = async (c: Context) => {
     entityType: "task",
     entityId: id,
     after: updated,
-    ipAddress: getIp(c),
-  }).catch(console.error);
-
-  return successResponse(c, updated);
-};
-
-// ─── Update Task Status Only (ADMIN + DEVELOPER) ─────────────────────────────
-
-export const updateTaskStatusOnly = async (c: Context) => {
-  const user = c.get("user");
-  const id = parse(uuidSchema("Task ID"), c.req.param("id"));
-  const body = await c.req.json();
-  const { status } = parse(updateTaskStatusSchema, body);
-
-  const updated = await updateTaskStatus(id, status, user);
-
-  createAuditLog({
-    orgId: user.orgId,
-    actorId: user.userId,
-    action: "task.status_updated",
-    entityType: "task",
-    entityId: id,
-    after: { status },
     ipAddress: getIp(c),
   }).catch(console.error);
 
