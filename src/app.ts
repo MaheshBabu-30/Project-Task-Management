@@ -16,12 +16,6 @@ import { env } from "./config/env.js";
 
 const app = new Hono();
 
-app.use("*", async (c, next) => {
-  console.log(`[req] ${c.req.method} ${c.req.path}`);
-  await next();
-  console.log(`[res] ${c.req.method} ${c.req.path} → ${c.res.status}`);
-});
-
 app.use("*", secureHeaders());
 
 app.use("*", cors({

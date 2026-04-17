@@ -14,9 +14,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 serve({ fetch: app.fetch, port: Number(env.PORT) || 3000, hostname: "0.0.0.0" }, (info) => {
-  console.log(`Server listening on ${info.address}:${info.port}`);
+  console.log(`Server running on ${info.address}:${info.port}`);
 });
-
-console.log(`PORT env var is: ${env.PORT}`);
 
 startScheduler();
