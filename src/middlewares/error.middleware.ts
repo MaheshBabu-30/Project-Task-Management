@@ -1,6 +1,6 @@
 import { ValiError } from "valibot";
 import type { ErrorHandler } from "hono";
-import { AppError, isStatusError } from "../utils/errors.js";
+import { AppError, isStatusError } from "../exceptions/AppError.js";
 import { logger } from "../utils/logger.js";
 
 /**

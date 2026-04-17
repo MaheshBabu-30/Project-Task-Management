@@ -1,14 +1,8 @@
 import jwt from "jsonwebtoken";
 import { env } from "../config/env.js";
+import type { TokenPayload } from "../types/auth.types.js";
 
-// ─── Token Payload Types ──────────────────────────────────────────────────────
-
-export interface TokenPayload {
-  userId: string;
-  role: "superadmin" | "admin" | "developer";
-  status: "active" | "inactive";
-  orgId?: string; // Present for admin and developer, absent for superadmin
-}
+export type { TokenPayload };
 
 // ─── Access Token ─────────────────────────────────────────────────────────────
 

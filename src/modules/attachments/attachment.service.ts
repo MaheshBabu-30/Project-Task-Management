@@ -1,12 +1,12 @@
 import { db } from "../../config/db.js";
 import { attachments, tasks, projects, taskAssignees, users } from "../../../drizzle/schema.js";
 import { eq, and, isNull, ilike, asc, desc, count, inArray } from "drizzle-orm";
-import { AppError } from "../../utils/errors.js";
+import { AppError } from "../../exceptions/AppError.js";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { s3Client, B2_BUCKET_NAME } from "../../config/s3.js";
+import type { UserSummary } from "../../types/common.types.js";
 
 type User = { userId: string; role: string; orgId?: string };
-type UserSummary = { id: string; name: string | null; email: string; avatarUrl: string | null };
 
 // ─── Verify task access ───────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
 import { createTaskSchema, updateTaskSchema, taskQuerySchema, updateTaskStatusSchema } from "./task.schema.js";
-import { uuidSchema } from "../../utils/schema.js";
+import { uuidSchema } from "../../helpers/schema.js";
 import {
   createTask,
   updateTask,
@@ -11,7 +11,7 @@ import {
   softDeleteTask,
 } from "./task.service.js";
 import { successResponse } from "../../utils/response.js";
-import { buildPagination } from "../../utils/pagination.js";
+import { buildPagination } from "../../helpers/pagination.js";
 import { createAuditLog } from "../audit-logs/audit-log.service.js";
 import { catchError } from "../../utils/logger.js";
 

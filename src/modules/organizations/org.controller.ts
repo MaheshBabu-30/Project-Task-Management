@@ -1,9 +1,9 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
 import { createOrgSchema, addMemberSchema, orgQuerySchema } from "./org.schema.js";
-import { buildPagination } from "../../utils/pagination.js";
-import { uuidSchema } from "../../utils/schema.js";
-import { AppError } from "../../utils/errors.js";
+import { buildPagination } from "../../helpers/pagination.js";
+import { uuidSchema } from "../../helpers/schema.js";
+import { AppError } from "../../exceptions/AppError.js";
 import {
   createOrganization,
   getAllOrganizations,

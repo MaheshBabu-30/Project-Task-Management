@@ -1,13 +1,14 @@
 import { db } from "../../config/db.js";
 import { notifications } from "../../../drizzle/schema.js";
 import { eq, and, isNull, asc, desc, count } from "drizzle-orm";
-import { AppError } from "../../utils/errors.js";
+import { AppError } from "../../exceptions/AppError.js";
+import type { NotificationType } from "../../constants/notification.constants.js";
 
 // ─── Create Notification (internal helper) ────────────────────────────────────
 
 export const createNotification = async (data: {
   userId: string;
-  type: "task_assigned" | "task_due_soon" | "task_overdue" | "task_completed" | "comment_added" | "member_removed";
+  type: NotificationType;
   title: string;
   body?: string;
   entityType?: string;
@@ -28,7 +29,6 @@ export const getNotifications = async (
 
   const filters = [eq(notifications.userId, userId)];
   if (unread === true) filters.push(isNull(notifications.readAt));
-  type NotificationType = "task_assigned" | "task_due_soon" | "task_overdue" | "task_completed" | "comment_added" | "member_removed";
   if (type) filters.push(eq(notifications.type, type as NotificationType));
 
   const whereCondition = and(...filters);

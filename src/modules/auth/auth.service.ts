@@ -4,7 +4,7 @@ import { db } from "../../config/db.js";
 import { users, sessions, otps, orgMembers, organizations } from "../../../drizzle/schema.js";
 import { eq, and, desc, isNull } from "drizzle-orm";
 import { generateToken, generateRefreshToken, verifyRefreshToken } from "../../utils/jwt.js";
-import { AppError } from "../../utils/errors.js";
+import { AppError } from "../../exceptions/AppError.js";
 import { sendOtpEmail } from "../../utils/mail.service.js";
 import { env } from "../../config/env.js";
 

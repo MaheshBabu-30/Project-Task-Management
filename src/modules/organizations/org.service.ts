@@ -1,9 +1,8 @@
 import { db } from "../../config/db.js";
 import { organizations, orgMembers, users, projects, projectMembers, taskAssignees, tasks, sessions } from "../../../drizzle/schema.js";
 import { eq, and, isNull, inArray, ilike, asc, desc, count } from "drizzle-orm";
-import { AppError } from "../../utils/errors.js";
-
-type UserSummary = { id: string; name: string | null; email: string; avatarUrl: string | null };
+import { AppError } from "../../exceptions/AppError.js";
+import type { UserSummary } from "../../types/common.types.js";
 
 // ─── Create Organization ──────────────────────────────────────────────────────
 

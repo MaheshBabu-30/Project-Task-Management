@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from "hono";
-import { AppError } from "../utils/errors.js";
+import { AppError } from "../exceptions/AppError.js";
 
 interface RateLimitEntry {
   count: number;

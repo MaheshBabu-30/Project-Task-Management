@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { auditLogQuerySchema } from "./audit-log.schema.js";
 import { getAuditLogs } from "./audit-log.service.js";
 import { successResponse } from "../../utils/response.js";
-import { buildPagination } from "../../utils/pagination.js";
+import { buildPagination } from "../../helpers/pagination.js";
 
 export const listAuditLogs = async (c: Context) => {
   const user = c.get("user");

@@ -1,7 +1,7 @@
 import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, B2_BUCKET_NAME } from "../../config/s3.js";
-import { AppError } from "../../utils/errors.js";
+import { AppError } from "../../exceptions/AppError.js";
 
 /**
  * Generates a pre-signed URL for a client to upload a file directly to Backblaze B2.

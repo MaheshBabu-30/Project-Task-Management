@@ -5,7 +5,7 @@ import {
   updateProjectSchema,
   projectQuerySchema
 } from "./project.schema.js";
-import { uuidSchema } from "../../utils/schema.js";
+import { uuidSchema } from "../../helpers/schema.js";
 import {
   createProject,
   getProjects,
@@ -14,7 +14,7 @@ import {
   deleteProject
 } from "./project.service.js";
 import { successResponse } from "../../utils/response.js";
-import { buildPagination } from "../../utils/pagination.js";
+import { buildPagination } from "../../helpers/pagination.js";
 import { createAuditLog } from "../audit-logs/audit-log.service.js";
 import { catchError } from "../../utils/logger.js";
 

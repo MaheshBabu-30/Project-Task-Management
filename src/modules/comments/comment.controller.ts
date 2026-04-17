@@ -1,10 +1,10 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
 import { createCommentSchema, updateCommentSchema, commentQuerySchema } from "./comment.schema.js";
-import { uuidSchema } from "../../utils/schema.js";
+import { uuidSchema } from "../../helpers/schema.js";
 import { getComments, createComment, updateComment, deleteComment } from "./comment.service.js";
 import { successResponse } from "../../utils/response.js";
-import { buildPagination } from "../../utils/pagination.js";
+import { buildPagination } from "../../helpers/pagination.js";
 
 export const listComments = async (c: Context) => {
   const user = c.get("user");

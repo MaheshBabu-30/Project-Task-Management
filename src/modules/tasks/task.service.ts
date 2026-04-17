@@ -1,14 +1,14 @@
 import { db } from "../../config/db.js";
 import { tasks, projects, taskAssignees, projectMembers, orgMembers, users } from "../../../drizzle/schema.js";
 import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, type InferSelectModel } from "drizzle-orm";
-import { AppError } from "../../utils/errors.js";
+import { AppError } from "../../exceptions/AppError.js";
 import { createNotification } from "../notifications/notification.service.js";
 import { catchError } from "../../utils/logger.js";
+import type { TaskStatus, TaskPriority } from "../../types/task.types.js";
+import type { UserSummary } from "../../types/common.types.js";
+import { ALLOWED_STATUS_TRANSITIONS } from "../../constants/task.constants.js";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
-type TaskStatus = "to_do" | "in_progress" | "on_hold" | "completed" | "overdue";
-type TaskPriority = "low" | "medium" | "high" | "urgent";
-type UserSummary = { id: string; name: string | null; email: string; avatarUrl: string | null };
 type TaskRecord = InferSelectModel<typeof tasks>;
 
 interface TaskQuery {
@@ -60,15 +60,6 @@ const getEffectiveStatus = (task: { dueDate: string | null; status: string }): T
   return task.status as TaskStatus;
 };
 
-// ─── Allowed Task Status Transitions ─────────────────────────────────────────
-
-const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  to_do:       ["in_progress", "on_hold"],
-  in_progress: ["on_hold", "completed"],
-  on_hold:     ["in_progress", "to_do"],
-  completed:   ["in_progress"], // reopen — admin and superadmin only
-  overdue:     ["in_progress", "on_hold"],
-};
 
 // ─── Helper: Update Project Status ───────────────────────────────────────────
 
@@ -468,7 +459,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
 
     // 2. Enforce status transition rules
     if (data.status && data.status !== task.status) {
-      const allowed = ALLOWED_TRANSITIONS[task.status] ?? [];
+      const allowed = ALLOWED_STATUS_TRANSITIONS[task.status] ?? [];
       if (!allowed.includes(data.status)) {
         throw new AppError(`Cannot transition from "${task.status}" to "${data.status}"`, 400);
       }
@@ -642,8 +633,8 @@ export const updateTaskStatus = async (
     }
 
     // Enforce transition rules
-    const allowed = ALLOWED_TRANSITIONS[task.status] ?? [];
-    if (!allowed.includes(newStatus)) {
+    const allowed = ALLOWED_STATUS_TRANSITIONS[task.status] ?? [];
+    if (!allowed.includes(newStatus as TaskStatus)) {
       throw new AppError(`Cannot transition from "${task.status}" to "${newStatus}"`, 400);
     }
 

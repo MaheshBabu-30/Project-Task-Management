@@ -1,10 +1,10 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
 import { notificationQuerySchema } from "./notification.schema.js";
-import { uuidSchema } from "../../utils/schema.js";
+import { uuidSchema } from "../../helpers/schema.js";
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from "./notification.service.js";
 import { successResponse } from "../../utils/response.js";
-import { buildPagination } from "../../utils/pagination.js";
+import { buildPagination } from "../../helpers/pagination.js";
 
 export const listNotifications = async (c: Context) => {
   const user = c.get("user");

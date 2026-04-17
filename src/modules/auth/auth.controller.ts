@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { loginSchema, requestOtpSchema, verifyOtpSchema } from "./auth.schema.js";
 import { loginUser, refreshSession, requestOtp, verifyOtp, logoutUser } from "./auth.service.js";
 import { successResponse } from "../../utils/response.js";
-import { AppError } from "../../utils/errors.js";
+import { AppError } from "../../exceptions/AppError.js";
 
 export const logoutUserAccount = async (c: Context) => {
   const user = c.get("user");

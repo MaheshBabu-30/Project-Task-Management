@@ -1,9 +1,8 @@
 import { db } from "../../config/db.js";
 import { projects, tasks, projectMembers, orgMembers, organizations, users, taskAssignees } from "../../../drizzle/schema.js";
 import { eq, ilike, and, asc, desc, isNull, isNotNull, inArray, notInArray, count } from "drizzle-orm";
-import { AppError } from "../../utils/errors.js";
-
-type UserSummary = { id: string; name: string | null; email: string; avatarUrl: string | null };
+import { AppError } from "../../exceptions/AppError.js";
+import type { UserSummary } from "../../types/common.types.js";
 
 interface UpdateProjectData {
   title?: string;

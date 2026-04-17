@@ -2,7 +2,7 @@ import bcrypt from "bcrypt";
 import { db } from "../../config/db.js";
 import { users, orgMembers, projectMembers, taskAssignees, tasks } from "../../../drizzle/schema.js";
 import { eq, ilike, and, asc, desc, isNull, inArray, notInArray, count, sql } from "drizzle-orm";
-import { AppError } from "../../utils/errors.js";
+import { AppError } from "../../exceptions/AppError.js";
 
 interface UserQuery {
   id?: string;

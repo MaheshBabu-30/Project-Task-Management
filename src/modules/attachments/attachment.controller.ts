@@ -1,11 +1,11 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
 import { createAttachmentSchema, attachmentQuerySchema } from "./attachment.schema.js";
-import { uuidSchema } from "../../utils/schema.js";
+import { uuidSchema } from "../../helpers/schema.js";
 import { getAttachments, linkAttachment, removeAttachment, getAttachmentById } from "./attachment.service.js";
 import { generatePresignedDownloadUrl } from "../uploads/upload.service.js";
 import { successResponse } from "../../utils/response.js";
-import { buildPagination } from "../../utils/pagination.js";
+import { buildPagination } from "../../helpers/pagination.js";
 
 export const listAttachments = async (c: Context) => {
   const user = c.get("user");

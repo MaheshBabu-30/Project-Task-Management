@@ -3,7 +3,7 @@ import type { Context } from "hono";
 import { getPresignedUrlSchema } from "./upload.schema.js";
 import { generatePresignedUploadUrl } from "./upload.service.js";
 import { successResponse } from "../../utils/response.js";
-import { AppError } from "../../utils/errors.js";
+import { AppError } from "../../exceptions/AppError.js";
 
 export const getUploadUrl = async (c: Context) => {
   const user = c.get("user");
