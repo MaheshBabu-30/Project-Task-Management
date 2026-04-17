@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { organizations, orgMembers, users, projects, projectMembers, taskAssignees, tasks, sessions } from "../../../drizzle/schema.js";
+import { organizations, orgMembers, users, projects, projectMembers, taskAssignees, tasks, sessions } from "../../db/schema.js";
 import { eq, and, isNull, inArray, ilike, asc, desc, count } from "drizzle-orm";
 import { BadRequestException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
 import { ORG_NOT_FOUND, ADMIN_ROLE_REQUIRED, ADMIN_ALREADY_IN_ORG, SLUG_TAKEN, USER_NOT_FOUND } from "../../constants/appMessages.js";

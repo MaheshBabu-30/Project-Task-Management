@@ -1,7 +1,7 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
 import { createAttachmentSchema, attachmentQuerySchema } from "./attachment.schema.js";
-import { uuidSchema } from "../../helpers/schema.js";
+import { uuidSchema } from "../../helpers/validators.js";
 import { getAttachments, linkAttachment, removeAttachment, getAttachmentById } from "./attachment.service.js";
 import { generatePresignedDownloadUrl } from "../uploads/upload.service.js";
 import { successResponse } from "../../utils/response.js";

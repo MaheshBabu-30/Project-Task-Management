@@ -1,5 +1,5 @@
 import { object, string, optional, number, minValue, maxValue, pipe, boolean, picklist, array, uuid, minLength, maxLength, nonEmpty, trim } from "valibot";
-import { projectStatusEnum } from "../../../drizzle/schema.js";
+import { projectStatusEnum } from "../../db/schema.js";
 
 // Settable statuses — "completed" is system-set only (auto when all tasks done)
 const SETTABLE_PROJECT_STATUSES = projectStatusEnum.enumValues.filter((s) => s !== "completed") as ["active", "on_hold"];

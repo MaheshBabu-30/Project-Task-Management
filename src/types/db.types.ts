@@ -13,7 +13,7 @@ import type {
   attachments,
   notifications,
   auditLogs,
-} from "../../drizzle/schema.js";
+} from "../db/schema.js";
 
 // ─── Table Map ────────────────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
 import { userQuerySchema, updateUserSchema, toggleUserStatusSchema, createUserSchema } from "./user.schema.js";
-import { uuidSchema } from "../../helpers/schema.js";
+import { uuidSchema } from "../../helpers/validators.js";
 import { getUsers, updateUserStatus, updateUserProfile, getUserById, createUser } from "./user.service.js";
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../helpers/pagination.js";

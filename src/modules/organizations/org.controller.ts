@@ -2,7 +2,7 @@ import { parse } from "valibot";
 import type { Context } from "hono";
 import { createOrgSchema, addMemberSchema, orgQuerySchema } from "./org.schema.js";
 import { buildPagination } from "../../helpers/pagination.js";
-import { uuidSchema } from "../../helpers/schema.js";
+import { uuidSchema } from "../../helpers/validators.js";
 import { BadRequestException, ForbiddenException } from "../../exceptions/index.js";
 import { ACCESS_DENIED, ADMIN_NO_ORG } from "../../constants/appMessages.js";
 import {

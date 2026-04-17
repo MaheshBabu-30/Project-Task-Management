@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { tasks, projects, taskAssignees, projectMembers, orgMembers, users } from "../../../drizzle/schema.js";
+import { tasks, projects, taskAssignees, projectMembers, orgMembers, users } from "../../db/schema.js";
 import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, sql, type InferSelectModel } from "drizzle-orm";
 import { BadRequestException, UnauthorizedException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";

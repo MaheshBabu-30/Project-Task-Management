@@ -1,7 +1,7 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
 import { createTaskSchema, updateTaskSchema, taskQuerySchema, updateTaskStatusSchema } from "./task.schema.js";
-import { uuidSchema } from "../../helpers/schema.js";
+import { uuidSchema } from "../../helpers/validators.js";
 import {
   createTask,
   updateTask,

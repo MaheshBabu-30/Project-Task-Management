@@ -1,5 +1,5 @@
 import { object, string, optional, number, minValue, maxValue, pipe, picklist, array, boolean, uuid, minLength, maxLength, regex, nonEmpty, check, trim } from "valibot";
-import { taskStatusEnum, taskPriorityEnum } from "../../../drizzle/schema.js";
+import { taskStatusEnum, taskPriorityEnum } from "../../db/schema.js";
 
 // Settable statuses — "overdue" is system-set only, never accepted from clients
 const SETTABLE_STATUSES = taskStatusEnum.enumValues.filter((s) => s !== "overdue") as ["to_do", "in_progress", "on_hold", "completed"];

@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { attachments, tasks, projects, taskAssignees, users } from "../../../drizzle/schema.js";
+import { attachments, tasks, projects, taskAssignees, users } from "../../db/schema.js";
 import { eq, and, isNull, ilike, asc, desc, count, inArray } from "drizzle-orm";
 import { ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import { TASK_NOT_FOUND, NO_ORG_ASSIGNED, ACCESS_DENIED, TASK_NOT_ASSIGNED, ATTACHMENT_NOT_FOUND, ATTACHMENT_DELETE_OWN } from "../../constants/appMessages.js";

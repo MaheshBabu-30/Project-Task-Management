@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { notifications } from "../../../drizzle/schema.js";
+import { notifications } from "../../db/schema.js";
 import { eq, and, isNull, asc, desc, count } from "drizzle-orm";
 import { NotFoundException } from "../../exceptions/index.js";
 import type { NotificationType } from "../../constants/notification.constants.js";

@@ -1,5 +1,5 @@
 import { object, string, optional, number, minValue, maxValue, pipe, picklist, uuid, email, minLength, maxLength, nonEmpty, regex, boolean, trim, toLowerCase } from "valibot";
-import { userRoleEnum, userStatusEnum } from "../../../drizzle/schema.js";
+import { userRoleEnum, userStatusEnum } from "../../db/schema.js";
 
 // Admins/superadmin can only create admin or developer — not superadmin
 const CREATABLE_ROLES = userRoleEnum.enumValues.filter((r) => r !== "superadmin") as ["admin", "developer"];

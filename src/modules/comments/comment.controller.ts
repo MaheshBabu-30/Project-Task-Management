@@ -1,7 +1,7 @@
 import { parse } from "valibot";
 import type { Context } from "hono";
 import { createCommentSchema, updateCommentSchema, commentQuerySchema } from "./comment.schema.js";
-import { uuidSchema } from "../../helpers/schema.js";
+import { uuidSchema } from "../../helpers/validators.js";
 import { getComments, createComment, updateComment, deleteComment } from "./comment.service.js";
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../helpers/pagination.js";

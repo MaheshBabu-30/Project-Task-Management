@@ -5,7 +5,7 @@ import {
   updateProjectSchema,
   projectQuerySchema
 } from "./project.schema.js";
-import { uuidSchema } from "../../helpers/schema.js";
+import { uuidSchema } from "../../helpers/validators.js";
 import {
   createProject,
   getProjects,

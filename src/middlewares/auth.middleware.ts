@@ -1,6 +1,6 @@
 import { verifyToken } from "../utils/jwt.js";
 import { db } from "../config/db.js";
-import { users } from "../../drizzle/schema.js";
+import { users } from "../db/schema.js";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Context, Next } from "hono";
 
