@@ -2,11 +2,13 @@ import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import "dotenv/config";
 
 const { Pool } = pg;
 
-const caPath = path.resolve("./ca.pem");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const caPath = path.resolve(__dirname, "../../ca.pem");
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,

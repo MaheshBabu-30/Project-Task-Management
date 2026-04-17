@@ -11,7 +11,6 @@ import {
   BadRequestException,
   InternalServerException,
 } from "../../exceptions/index.js";
-import { BaseException } from "../../exceptions/BaseException.js";
 import { sendOtpEmail } from "../../utils/mail.service.js";
 import { env } from "../../config/env.js";
 import {
@@ -96,40 +95,41 @@ export const loginUser = async ({ email, password }: { email: string; password: 
 // ─── Refresh Session ──────────────────────────────────────────────────────────
 
 export const refreshSession = async (token: string) => {
+  let payload;
   try {
-    const payload = verifyRefreshToken(token);
-
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-
-    const [session] = await db
-      .select()
-      .from(sessions)
-      .where(and(eq(sessions.refreshToken, tokenHash), eq(sessions.userId, payload.userId)));
-
-    if (!session || session.expiresAt < new Date()) {
-      if (session) await db.delete(sessions).where(eq(sessions.id, session.id));
-      throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
-    }
-
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, payload.userId), isNull(users.deletedAt)));
-
-    if (!user) throw new NotFoundException(USER_NOT_FOUND);
-    if (user.status === "inactive") throw new ForbiddenException(ACCOUNT_DEACTIVATED_SHORT);
-
-    const newPayload = await buildTokenPayload(user);
-    const accessToken = generateToken(newPayload);
-    const newRefreshToken = generateRefreshToken(newPayload);
-
-    const newTokenHash = createHash("sha256").update(newRefreshToken).digest("hex");
-    await db.update(sessions).set({ refreshToken: newTokenHash }).where(eq(sessions.id, session.id));
-
-    return { tokens: { accessToken, refreshToken: newRefreshToken } };
-  } catch (error) {
-    throw new UnauthorizedException(error instanceof BaseException ? error.message : INVALID_REFRESH_TOKEN);
+    payload = verifyRefreshToken(token);
+  } catch {
+    throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
   }
+
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.refreshToken, tokenHash), eq(sessions.userId, payload.userId)));
+
+  if (!session || session.expiresAt < new Date()) {
+    if (session) await db.delete(sessions).where(eq(sessions.id, session.id));
+    throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
+  }
+
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.id, payload.userId), isNull(users.deletedAt)));
+
+  if (!user) throw new NotFoundException(USER_NOT_FOUND);
+  if (user.status === "inactive") throw new ForbiddenException(ACCOUNT_DEACTIVATED_SHORT);
+
+  const newPayload = await buildTokenPayload(user);
+  const accessToken = generateToken(newPayload);
+  const newRefreshToken = generateRefreshToken(newPayload);
+
+  const newTokenHash = createHash("sha256").update(newRefreshToken).digest("hex");
+  await db.update(sessions).set({ refreshToken: newTokenHash }).where(eq(sessions.id, session.id));
+
+  return { tokens: { accessToken, refreshToken: newRefreshToken } };
 };
 
 // ─── Request OTP ──────────────────────────────────────────────────────────────

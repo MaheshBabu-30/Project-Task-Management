@@ -217,7 +217,13 @@ export const updateUserStatus = async (
 
 // ─── Update User Profile ──────────────────────────────────────────────────────
 
-export const updateUserProfile = async (id: string, data: any) => {
+interface ProfileUpdate {
+  name?: string;
+  phone?: string;
+  avatarUrl?: string;
+}
+
+export const updateUserProfile = async (id: string, data: ProfileUpdate) => {
   const [updated] = await db
     .update(users)
     .set({ ...data, updatedAt: new Date() })

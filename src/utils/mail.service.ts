@@ -11,7 +11,7 @@ export const   sendOtpEmail = async (email: string, otp: string) => {
   const payload = {
     sender: {
       name: "Task Management System",
-      email: "maheshbabubaddipudi@gmail.com"
+      email: env.BREVO_SENDER_EMAIL
     },
     to: [
       {

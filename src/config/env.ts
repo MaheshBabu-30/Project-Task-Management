@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 // ─── Validate required env vars at startup ────────────────────────────────────
-const required = ["DATABASE_URL", "JWT_SECRET", "REFRESH_TOKEN_SECRET"] as const;
+const required = ["DATABASE_URL", "JWT_SECRET", "REFRESH_TOKEN_SECRET", "OTP_SECRET"] as const;
 
 for (const key of required) {
   if (!process.env[key]) {
@@ -19,6 +19,12 @@ export const env = {
   REFRESH_TOKEN_SECRET:       process.env.REFRESH_TOKEN_SECRET as string,
   REFRESH_TOKEN_EXPIRES_IN:   process.env.REFRESH_TOKEN_EXPIRES_IN || "7d",
   BREVO_API_KEY:              process.env.BREVO_API_KEY,
+  BREVO_SENDER_EMAIL:         process.env.BREVO_SENDER_EMAIL || "maheshbabubaddipudi@gmail.com",
   ALLOWED_ORIGINS:            process.env.ALLOWED_ORIGINS || "*",
-  OTP_SECRET:                 process.env.OTP_SECRET,
+  OTP_SECRET:                 process.env.OTP_SECRET as string,
+  B2_ENDPOINT:                process.env.B2_ENDPOINT,
+  B2_REGION:                  process.env.B2_REGION,
+  B2_ACCESS_KEY_ID:           process.env.B2_ACCESS_KEY_ID,
+  B2_SECRET_ACCESS_KEY:       process.env.B2_SECRET_ACCESS_KEY,
+  B2_BUCKET_NAME:             process.env.B2_BUCKET_NAME,
 };

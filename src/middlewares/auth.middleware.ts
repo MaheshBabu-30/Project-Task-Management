@@ -25,10 +25,16 @@ export const authMiddleware = async (c: Context, next: Next) => {
 
   // Always verify status against the DB — JWT payload can be stale for up to
   // the token TTL, meaning a deactivated/deleted user would retain access.
-  const [user] = await db
-    .select({ status: users.status })
-    .from(users)
-    .where(and(eq(users.id, payload.userId), isNull(users.deletedAt)));
+  let user: { status: "active" | "inactive" } | undefined;
+  try {
+    const [row] = await db
+      .select({ status: users.status })
+      .from(users)
+      .where(and(eq(users.id, payload.userId), isNull(users.deletedAt)));
+    user = row;
+  } catch {
+    return c.json({ message: "Authentication service unavailable" }, 503);
+  }
 
   if (!user || user.status === "inactive") {
     return c.json({ message: "User account is deactivated. Access denied." }, 403);
