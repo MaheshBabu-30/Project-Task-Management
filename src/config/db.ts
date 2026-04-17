@@ -14,7 +14,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: fs.existsSync(caPath)
     ? { ca: fs.readFileSync(caPath).toString(), rejectUnauthorized: true }
-    : { rejectUnauthorized: true },
+    : { rejectUnauthorized: false }, // no CA cert — encrypt but skip cert verification (standard for hosted DBs)
 });
 
 export const db = drizzle(pool);
