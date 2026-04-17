@@ -2,14 +2,23 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+// ─── Validate required env vars at startup ────────────────────────────────────
+const required = ["DATABASE_URL", "JWT_SECRET", "REFRESH_TOKEN_SECRET"] as const;
+
+for (const key of required) {
+  if (!process.env[key]) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+}
+
 export const env = {
-  PORT: process.env.PORT || 3000,
-  DATABASE_URL: process.env.DATABASE_URL,
-  JWT_SECRET: process.env.JWT_SECRET,
-  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "1h",
-  REFRESH_TOKEN_SECRET: process.env.REFRESH_TOKEN_SECRET,
-  REFRESH_TOKEN_EXPIRES_IN: process.env.REFRESH_TOKEN_EXPIRES_IN,
-  BREVO_API_KEY: process.env.BREVO_API_KEY,
-  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || "*",
-  OTP_SECRET: process.env.OTP_SECRET,
+  PORT:                       process.env.PORT || 3000,
+  DATABASE_URL:               process.env.DATABASE_URL as string,
+  JWT_SECRET:                 process.env.JWT_SECRET as string,
+  JWT_EXPIRES_IN:             process.env.JWT_EXPIRES_IN || "1h",
+  REFRESH_TOKEN_SECRET:       process.env.REFRESH_TOKEN_SECRET as string,
+  REFRESH_TOKEN_EXPIRES_IN:   process.env.REFRESH_TOKEN_EXPIRES_IN || "7d",
+  BREVO_API_KEY:              process.env.BREVO_API_KEY,
+  ALLOWED_ORIGINS:            process.env.ALLOWED_ORIGINS || "*",
+  OTP_SECRET:                 process.env.OTP_SECRET,
 };

@@ -3,14 +3,14 @@ import type { Context } from "hono";
 import { loginSchema, requestOtpSchema, verifyOtpSchema } from "./auth.schema.js";
 import { loginUser, refreshSession, requestOtp, verifyOtp, logoutUser } from "./auth.service.js";
 import { successResponse } from "../../utils/response.js";
-import { AppError } from "../../exceptions/AppError.js";
+import { BadRequestException } from "../../exceptions/index.js";
 
 export const logoutUserAccount = async (c: Context) => {
   const user = c.get("user");
   const { refreshToken } = await c.req.json();
 
   if (!refreshToken) {
-    throw new AppError("Refresh token is required", 400);
+    throw new BadRequestException("Refresh token is required");
   }
 
   await logoutUser(user.userId, refreshToken);
@@ -33,7 +33,7 @@ export const refreshUserSession = async (c: Context) => {
   const { refreshToken } = await c.req.json();
   
   if (!refreshToken) {
-    throw new AppError("Refresh token is required", 400);
+    throw new BadRequestException("Refresh token is required");
   }
 
   const result = await refreshSession(refreshToken);

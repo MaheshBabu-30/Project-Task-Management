@@ -1,7 +1,8 @@
 import { db } from "../../config/db.js";
 import { projects, tasks, projectMembers, orgMembers, organizations, users, taskAssignees } from "../../../drizzle/schema.js";
 import { eq, ilike, and, asc, desc, isNull, isNotNull, inArray, notInArray, count, sql } from "drizzle-orm";
-import { AppError } from "../../exceptions/AppError.js";
+import { BadRequestException, UnauthorizedException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
+import * as M from "../../constants/appMessages.js";
 import type { UserSummary } from "../../types/common.types.js";
 
 interface UpdateProjectData {
@@ -44,7 +45,7 @@ export const createProject = async (data: {
       .from(organizations)
       .where(and(eq(organizations.id, data.orgId), isNull(organizations.deletedAt)));
 
-    if (!org) throw new AppError("Organization not found", 404);
+    if (!org) throw new NotFoundException(M.ORG_NOT_FOUND);
 
     // 1. Insert Project
     const [project] = await tx
@@ -52,7 +53,7 @@ export const createProject = async (data: {
       .values(projectData)
       .returning();
 
-    if (!project) throw new AppError("Failed to create project", 500);
+    if (!project) throw new InternalServerException(M.PROJECT_CREATE_FAILED);
 
     // 2. Assign initial members if provided
     if (assignedUserIds && assignedUserIds.length > 0) {
@@ -62,7 +63,7 @@ export const createProject = async (data: {
         .where(and(eq(orgMembers.orgId, data.orgId), inArray(orgMembers.userId, assignedUserIds)));
 
       if (validMembers.length !== assignedUserIds.length) {
-        throw new AppError("One or more assigned users do not belong to this organization", 400);
+        throw new BadRequestException(M.INVALID_PROJECT_MEMBERS);
       }
 
       const memberEntries = assignedUserIds.map((userId) => ({
@@ -108,7 +109,7 @@ export const getProjects = async (
     if (orgId) filters.push(eq(projects.orgId, orgId));
   } else {
     // Admins and developers are locked to their org
-    if (!user.orgId) throw new AppError("User not assigned to an organization", 403);
+    if (!user.orgId) throw new ForbiddenException(M.USER_NO_ORG);
     filters.push(eq(projects.orgId, user.orgId));
 
     if (user.role === "developer") {
@@ -211,7 +212,7 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
 
   // 1. Org Check for non-superadmins
   if (user.role !== "superadmin") {
-    if (!user.orgId) throw new AppError("User not assigned to an organization", 403);
+    if (!user.orgId) throw new ForbiddenException(M.USER_NO_ORG);
     filters.push(eq(projects.orgId, user.orgId));
   }
 
@@ -221,7 +222,7 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
     .where(and(...filters))
     .limit(1);
 
-  if (!project) throw new AppError("Project not found", 404);
+  if (!project) throw new NotFoundException(M.PROJECT_NOT_FOUND);
 
   // 2. Developer Check
   if (user.role === "developer") {
@@ -231,7 +232,7 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
       .where(and(eq(projectMembers.projectId, id), eq(projectMembers.userId, user.userId)))
       .limit(1);
     
-    if (!membership) throw new AppError("Access denied. You are not a member of this project.", 403);
+    if (!membership) throw new ForbiddenException(M.PROJECT_NOT_MEMBER);
   }
 
   // 3. Fetch members, creator, task stats, and per-member task counts in parallel
@@ -316,12 +317,12 @@ export const updateProject = async (id: string, data: UpdateProjectData, orgId?:
         : and(eq(projects.id, id), isNull(projects.deletedAt)))
       .returning();
 
-    if (!updated) throw new AppError("Project not found or access denied", 404);
+    if (!updated) throw new NotFoundException(M.PROJECT_NOT_FOUND_OR_DENIED);
 
     // If assignedUserIds is provided, sync the membership
     if (assignedUserIds !== undefined) {
       if (assignedUserIds.length === 0) {
-        throw new AppError("assignedUserIds cannot be empty. Omit the field to keep current members.", 400);
+        throw new BadRequestException(M.PROJECT_MEMBERS_EMPTY);
       }
       await tx.delete(projectMembers).where(eq(projectMembers.projectId, id));
 
@@ -332,7 +333,7 @@ export const updateProject = async (id: string, data: UpdateProjectData, orgId?:
           .where(and(eq(orgMembers.orgId, updated.orgId), inArray(orgMembers.userId, assignedUserIds)));
 
         if (validMembers.length !== assignedUserIds.length) {
-          throw new AppError("One or more assigned users do not belong to this organization", 400);
+          throw new BadRequestException(M.INVALID_PROJECT_MEMBERS);
         }
 
         await tx.insert(projectMembers).values(
@@ -371,7 +372,7 @@ export const deleteProject = async (id: string, orgId?: string) => {
       ? and(eq(projects.id, id), eq(projects.orgId, orgId), isNull(projects.deletedAt))
       : and(eq(projects.id, id), isNull(projects.deletedAt)));
 
-  if (!project) throw new AppError("Project not found", 404);
+  if (!project) throw new NotFoundException(M.PROJECT_NOT_FOUND);
 
   // Guard check: All tasks must be completed
   const pendingTasks = await db
@@ -384,7 +385,7 @@ export const deleteProject = async (id: string, orgId?: string) => {
     ));
 
   if (pendingTasks.length > 0) {
-    throw new AppError(`Cannot delete project. There are still ${pendingTasks.length} pending tasks.`, 400);
+    throw new BadRequestException(M.PROJECT_PENDING_TASKS(pendingTasks.length));
   }
 
   await db.transaction(async (tx) => {

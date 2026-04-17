@@ -1,10 +1,12 @@
-import { object, string, optional, number, pipe, regex, minLength, maxLength, uuid, nonEmpty, picklist, minValue, maxValue } from "valibot";
+import { object, string, optional, number, pipe, regex, minLength, maxLength, uuid, nonEmpty, picklist, minValue, maxValue, trim, toLowerCase } from "valibot";
 
 // Create a new organization (SUPERADMIN only)
 export const createOrgSchema = object({
-  name: pipe(string(), nonEmpty("Organization name is required"), minLength(2, "Organization name must be at least 2 characters"), maxLength(200, "Organization name must be at most 200 characters")),
+  name: pipe(string(), trim(), nonEmpty("Organization name is required"), minLength(2, "Organization name must be at least 2 characters"), maxLength(200, "Organization name must be at most 200 characters")),
   slug: pipe(
     string(),
+    trim(),
+    toLowerCase(),
     nonEmpty("Slug is required"),
     minLength(2, "Slug must be at least 2 characters"),
     maxLength(100, "Slug must be at most 100 characters"),

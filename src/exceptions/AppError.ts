@@ -1,20 +1,8 @@
-export class AppError extends Error {
-  public status: number;
+// Re-exported for backward compatibility. Prefer specific exception subclasses from "./index.js".
+export { BaseException as AppError } from "./BaseException.js";
+export { BaseException } from "./BaseException.js";
 
-  constructor(message: string, status: number = 500) {
-    super(message);
-    this.name = "AppError";
-    this.status = status;
-    Object.setPrototypeOf(this, new.target.prototype);
-  }
-}
-
-interface StatusError extends Error {
-  status: number;
-}
-
-/** Type guard: true when an unknown value has a numeric `.status` property. */
-export const isStatusError = (err: unknown): err is StatusError =>
+export const isStatusError = (err: unknown): err is { status: number } & Error =>
   err instanceof Error &&
   "status" in err &&
-  typeof (err as StatusError).status === "number";
+  typeof (err as { status: unknown }).status === "number";

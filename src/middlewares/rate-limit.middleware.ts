@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from "hono";
-import { AppError } from "../exceptions/AppError.js";
+import { TooManyRequestsException } from "../exceptions/index.js";
 
 interface RateLimitEntry {
   count: number;
@@ -66,7 +66,7 @@ export const rateLimiter = ({
     entry.count++;
 
     if (entry.count > max) {
-      throw new AppError(message, 429);
+      throw new TooManyRequestsException(message);
     }
 
     return next();

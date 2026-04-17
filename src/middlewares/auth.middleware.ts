@@ -16,23 +16,24 @@ export const authMiddleware = async (c: Context, next: Next) => {
     return c.json({ message: "Unauthorized" }, 401);
   }
 
+  let payload;
   try {
-    const payload = verifyToken(token);
-
-    // Always verify status against the DB — JWT payload can be stale for up to
-    // the token TTL, meaning a deactivated/deleted user would retain access.
-    const [user] = await db
-      .select({ status: users.status })
-      .from(users)
-      .where(and(eq(users.id, payload.userId), isNull(users.deletedAt)));
-
-    if (!user || user.status === "inactive") {
-      return c.json({ message: "User account is deactivated. Access denied." }, 403);
-    }
-
-    c.set("user", payload);
-    return next();
+    payload = verifyToken(token);
   } catch {
     return c.json({ message: "Invalid or expired token" }, 401);
   }
+
+  // Always verify status against the DB — JWT payload can be stale for up to
+  // the token TTL, meaning a deactivated/deleted user would retain access.
+  const [user] = await db
+    .select({ status: users.status })
+    .from(users)
+    .where(and(eq(users.id, payload.userId), isNull(users.deletedAt)));
+
+  if (!user || user.status === "inactive") {
+    return c.json({ message: "User account is deactivated. Access denied." }, 403);
+  }
+
+  c.set("user", payload);
+  return next();
 };

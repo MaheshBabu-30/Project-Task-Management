@@ -4,9 +4,35 @@ import { db } from "../../config/db.js";
 import { users, sessions, otps, orgMembers, organizations } from "../../../drizzle/schema.js";
 import { eq, and, desc, isNull } from "drizzle-orm";
 import { generateToken, generateRefreshToken, verifyRefreshToken } from "../../utils/jwt.js";
-import { AppError } from "../../exceptions/AppError.js";
+import {
+  UnauthorizedException,
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+  InternalServerException,
+} from "../../exceptions/index.js";
+import { BaseException } from "../../exceptions/BaseException.js";
 import { sendOtpEmail } from "../../utils/mail.service.js";
 import { env } from "../../config/env.js";
+import {
+  INVALID_CREDENTIALS,
+  ACCOUNT_INACTIVE,
+  ACCOUNT_DEACTIVATED,
+  ACCOUNT_DEACTIVATED_SHORT,
+  OTP_LOGIN_REQUIRED,
+  INVALID_REFRESH_TOKEN,
+  USER_NOT_FOUND,
+  EMAIL_NOT_REGISTERED,
+  OTP_SECRET_NOT_CONFIGURED,
+  EMAIL_SEND_FAILED,
+  OTP_SENT,
+  OTP_NOT_FOUND,
+  OTP_EXPIRED,
+  OTP_TOO_MANY_ATTEMPTS,
+  OTP_INVALID,
+  OTP_ALREADY_USED,
+  USER_ACCOUNT_NOT_FOUND,
+} from "../../constants/appMessages.js";
 
 // ─── Helper: Build Token Payload with orgId ───────────────────────────────────
 
@@ -35,7 +61,6 @@ export const createSession = async (userId: string, refreshToken: string) => {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
 
-  // Store hash of refresh token, not plain text
   const tokenHash = createHash("sha256").update(refreshToken).digest("hex");
   await db.insert(sessions).values({ userId, refreshToken: tokenHash, expiresAt });
 };
@@ -48,12 +73,12 @@ export const loginUser = async ({ email, password }: { email: string; password: 
     .from(users)
     .where(and(eq(users.email, email), isNull(users.deletedAt)));
 
-  if (!user) throw new AppError("Invalid credentials", 401);
-  if (user.status === "inactive") throw new AppError("Your account is inactive. Please contact admin.", 403);
-  if (!user.passwordHash) throw new AppError("This account uses OTP login. Please request a code.", 401);
+  if (!user) throw new UnauthorizedException(INVALID_CREDENTIALS);
+  if (user.status === "inactive") throw new ForbiddenException(ACCOUNT_INACTIVE);
+  if (!user.passwordHash) throw new UnauthorizedException(OTP_LOGIN_REQUIRED);
 
   const isValid = await bcrypt.compare(password, user.passwordHash);
-  if (!isValid) throw new AppError("Invalid credentials", 401);
+  if (!isValid) throw new UnauthorizedException(INVALID_CREDENTIALS);
 
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
 
@@ -74,7 +99,6 @@ export const refreshSession = async (token: string) => {
   try {
     const payload = verifyRefreshToken(token);
 
-    // Hash incoming token to match stored hash
     const tokenHash = createHash("sha256").update(token).digest("hex");
 
     const [session] = await db
@@ -84,7 +108,7 @@ export const refreshSession = async (token: string) => {
 
     if (!session || session.expiresAt < new Date()) {
       if (session) await db.delete(sessions).where(eq(sessions.id, session.id));
-      throw new AppError("Invalid or expired refresh token", 401);
+      throw new UnauthorizedException(INVALID_REFRESH_TOKEN);
     }
 
     const [user] = await db
@@ -92,10 +116,9 @@ export const refreshSession = async (token: string) => {
       .from(users)
       .where(and(eq(users.id, payload.userId), isNull(users.deletedAt)));
 
-    if (!user) throw new AppError("User not found", 404);
-    if (user.status === "inactive") throw new AppError("Your account is deactivated.", 403);
+    if (!user) throw new NotFoundException(USER_NOT_FOUND);
+    if (user.status === "inactive") throw new ForbiddenException(ACCOUNT_DEACTIVATED_SHORT);
 
-    // Rotate refresh token — issue a new one and replace the stored hash
     const newPayload = await buildTokenPayload(user);
     const accessToken = generateToken(newPayload);
     const newRefreshToken = generateRefreshToken(newPayload);
@@ -105,7 +128,7 @@ export const refreshSession = async (token: string) => {
 
     return { tokens: { accessToken, refreshToken: newRefreshToken } };
   } catch (error) {
-    throw new AppError(error instanceof AppError ? error.message : "Invalid or expired refresh token", 401);
+    throw new UnauthorizedException(error instanceof BaseException ? error.message : INVALID_REFRESH_TOKEN);
   }
 };
 
@@ -117,14 +140,12 @@ export const requestOtp = async (email: string) => {
     .from(users)
     .where(and(eq(users.email, email), isNull(users.deletedAt)));
 
-  if (!user) throw new AppError("This email is not registered.", 404);
+  if (!user) throw new NotFoundException(EMAIL_NOT_REGISTERED);
 
-  // Cryptographically secure 6-digit OTP
   const otp = randomInt(100000, 1000000).toString();
 
-  // HMAC-SHA256 hash — fast, correct tool for short-lived codes
   const otpSecret = env.OTP_SECRET;
-  if (!otpSecret) throw new AppError("OTP_SECRET is not configured", 500);
+  if (!otpSecret) throw new InternalServerException(OTP_SECRET_NOT_CONFIGURED);
   const otpHash = createHmac("sha256", otpSecret).update(otp).digest("hex");
 
   const expiresAt = new Date();
@@ -133,9 +154,9 @@ export const requestOtp = async (email: string) => {
   await db.insert(otps).values({ email, otpHash, expiresAt });
 
   const sent = await sendOtpEmail(email, otp);
-  if (!sent) throw new AppError("Failed to send verification email", 500);
+  if (!sent) throw new InternalServerException(EMAIL_SEND_FAILED);
 
-  return { message: "Verification code sent to your email" };
+  return { message: OTP_SENT };
 };
 
 // ─── OTP Attempt Tracking (in-memory) ────────────────────────────────────────
@@ -154,36 +175,33 @@ export const verifyOtp = async (email: string, otp: string) => {
     .orderBy(desc(otps.createdAt))
     .limit(1);
 
-  if (!latestOtp) throw new AppError("No verification code found. Please request a new one.", 400);
+  if (!latestOtp) throw new BadRequestException(OTP_NOT_FOUND);
 
   if (latestOtp.expiresAt < new Date()) {
     await db.delete(otps).where(eq(otps.id, latestOtp.id));
     otpAttempts.delete(latestOtp.id);
-    throw new AppError("Verification code has expired. Please request a new one.", 400);
+    throw new BadRequestException(OTP_EXPIRED);
   }
 
-  // Enforce max attempt limit — invalidate OTP after too many wrong guesses
   const attempts = (otpAttempts.get(latestOtp.id) ?? 0) + 1;
   if (attempts > MAX_OTP_ATTEMPTS) {
     await db.delete(otps).where(eq(otps.id, latestOtp.id));
     otpAttempts.delete(latestOtp.id);
-    throw new AppError("Too many failed attempts. Please request a new verification code.", 400);
+    throw new BadRequestException(OTP_TOO_MANY_ATTEMPTS);
   }
 
-  // Recompute HMAC and compare
   const otpSecret = env.OTP_SECRET;
-  if (!otpSecret) throw new AppError("OTP_SECRET is not configured", 500);
+  if (!otpSecret) throw new InternalServerException(OTP_SECRET_NOT_CONFIGURED);
   const incoming = createHmac("sha256", otpSecret).update(otp).digest("hex");
   const isValid = incoming === latestOtp.otpHash;
 
   if (!isValid) {
     otpAttempts.set(latestOtp.id, attempts);
-    throw new AppError("Invalid verification code", 400);
+    throw new BadRequestException(OTP_INVALID);
   }
 
-  // Atomic delete by specific ID — prevents concurrent requests from consuming the same OTP
   const deleted = await db.delete(otps).where(eq(otps.id, latestOtp.id)).returning({ id: otps.id });
-  if (deleted.length === 0) throw new AppError("Verification code already used. Please request a new one.", 400);
+  if (deleted.length === 0) throw new BadRequestException(OTP_ALREADY_USED);
   otpAttempts.delete(latestOtp.id);
 
   const [user] = await db
@@ -191,8 +209,8 @@ export const verifyOtp = async (email: string, otp: string) => {
     .from(users)
     .where(and(eq(users.email, email), isNull(users.deletedAt)));
 
-  if (!user) throw new AppError("User account not found", 404);
-  if (user.status === "inactive") throw new AppError("Your account is deactivated. Please contact admin.", 403);
+  if (!user) throw new NotFoundException(USER_ACCOUNT_NOT_FOUND);
+  if (user.status === "inactive") throw new ForbiddenException(ACCOUNT_DEACTIVATED);
 
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
 

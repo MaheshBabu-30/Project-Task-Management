@@ -1,7 +1,8 @@
 import { db } from "../../config/db.js";
 import { tasks, projects, taskAssignees, projectMembers, orgMembers, users } from "../../../drizzle/schema.js";
 import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, sql, type InferSelectModel } from "drizzle-orm";
-import { AppError } from "../../exceptions/AppError.js";
+import { BadRequestException, UnauthorizedException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
+import * as M from "../../constants/appMessages.js";
 import { createNotification } from "../notifications/notification.service.js";
 import { catchError } from "../../utils/logger.js";
 import type { TaskStatus, TaskPriority } from "../../types/task.types.js";
@@ -109,8 +110,8 @@ export const createTask = async (data: {
         .from(projects)
         .where(and(eq(projects.id, taskData.projectId), isNull(projects.deletedAt)));
 
-      if (!project) throw new AppError("Project not found", 404);
-      if (project.orgId !== requesterOrgId) throw new AppError("Project does not belong to your organization", 403);
+      if (!project) throw new NotFoundException(M.PROJECT_NOT_FOUND);
+      if (project.orgId !== requesterOrgId) throw new ForbiddenException(M.PROJECT_WRONG_ORG);
     }
 
     // 3. Subtask validation
@@ -120,9 +121,9 @@ export const createTask = async (data: {
         .from(tasks)
         .where(and(eq(tasks.id, taskData.parentTaskId), isNull(tasks.deletedAt)));
 
-      if (!parent) throw new AppError("Parent task not found", 404);
-      if (parent.projectId !== taskData.projectId) throw new AppError("Subtask must belong to the same project as its parent", 400);
-      if (parent.parentTaskId) throw new AppError("Cannot create a subtask of a subtask. Max 1 level deep.", 400);
+      if (!parent) throw new NotFoundException(M.PARENT_TASK_NOT_FOUND);
+      if (parent.projectId !== taskData.projectId) throw new BadRequestException(M.SUBTASK_WRONG_PROJECT);
+      if (parent.parentTaskId) throw new BadRequestException(M.SUBTASK_MAX_DEPTH);
     }
 
     // 2. Insert Task
@@ -134,7 +135,7 @@ export const createTask = async (data: {
       })
       .returning();
 
-    if (!task) throw new AppError("Failed to create task", 500);
+    if (!task) throw new InternalServerException(M.TASK_CREATE_FAILED);
 
     // 3. Assign Developers
     if (assignedUserIds && assignedUserIds.length > 0) {
@@ -154,7 +155,7 @@ export const createTask = async (data: {
           ));
 
         if (validMembers.length !== assignedUserIds.length) {
-          throw new AppError("One or more assigned users are not developers in this organization", 400);
+          throw new BadRequestException(M.INVALID_ASSIGNEES);
         }
       }
 
@@ -237,7 +238,7 @@ export const getTasks = async (
       baseFilters.push(inArray(tasks.projectId, orgProjectIds));
     }
   } else {
-    if (!user.orgId) throw new AppError("No organization assigned", 403);
+    if (!user.orgId) throw new ForbiddenException(M.NO_ORG_ASSIGNED);
 
     const orgProjectIds = db
       .select({ id: projects.id })
@@ -383,7 +384,7 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
     .from(tasks)
     .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
 
-  if (!task) throw new AppError("Task not found", 404);
+  if (!task) throw new NotFoundException(M.TASK_NOT_FOUND);
 
   // 1. Scoping Check
   if (user.role !== "superadmin") {
@@ -393,7 +394,7 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
       .where(eq(projects.id, task.projectId));
     
     if (project?.orgId !== user.orgId) {
-      throw new AppError("Access denied", 403);
+      throw new ForbiddenException(M.ACCESS_DENIED);
     }
 
     if (user.role === "developer") {
@@ -401,8 +402,8 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
         .select()
         .from(taskAssignees)
         .where(and(eq(taskAssignees.taskId, id), eq(taskAssignees.userId, user.userId)));
-      
-      if (!assigned) throw new AppError("Access denied. Task not assigned to you.", 403);
+
+      if (!assigned) throw new ForbiddenException(M.TASK_NOT_ASSIGNED);
     }
   }
 
@@ -480,13 +481,13 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
           .from(tasks)
           .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
 
-    if (!task) throw new AppError("Task not found or access denied", 404);
+    if (!task) throw new NotFoundException(M.TASK_NOT_FOUND_OR_DENIED);
 
     // 2. Enforce status transition rules
     if (data.status && data.status !== task.status) {
       const allowed = ALLOWED_STATUS_TRANSITIONS[task.status] ?? [];
       if (!allowed.includes(data.status)) {
-        throw new AppError(`Cannot transition from "${task.status}" to "${data.status}"`, 400);
+        throw new BadRequestException(M.INVALID_STATUS_TRANSITION(task.status, data.status));
       }
     }
 
@@ -498,10 +499,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
         .where(and(eq(tasks.id, task.parentTaskId), isNull(tasks.deletedAt)));
 
       if (parentTask?.status === "completed") {
-        throw new AppError(
-          "Cannot change the status of a subtask while its parent task is completed. Reopen the parent task first.",
-          400
-        );
+        throw new BadRequestException(M.SUBTASK_LOCKED_BY_PARENT);
       }
     }
 
@@ -517,10 +515,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
         ));
 
       if (incompleteSubtasks.length > 0) {
-        throw new AppError(
-          `Cannot complete this task: ${incompleteSubtasks.length} subtask(s) are not yet completed`,
-          400
-        );
+        throw new BadRequestException(M.INCOMPLETE_SUBTASKS(incompleteSubtasks.length));
       }
     }
 
@@ -541,12 +536,12 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
       .where(eq(tasks.id, id))
       .returning();
 
-    if (!updated) throw new AppError("Task not found or access denied", 404);
+    if (!updated) throw new NotFoundException(M.TASK_NOT_FOUND_OR_DENIED);
 
     // 3. Sync Assignees
     if (assignedUserIds) {
       if (assignedUserIds.length === 0) {
-        throw new AppError("assignedUserIds cannot be empty. Omit the field to keep current assignees.", 400);
+        throw new BadRequestException(M.ASSIGNED_USER_IDS_EMPTY);
       }
       await tx.delete(taskAssignees).where(eq(taskAssignees.taskId, id));
       if (assignedUserIds.length > 0) {
@@ -566,7 +561,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
             ));
 
           if (validMembers.length !== assignedUserIds.length) {
-            throw new AppError("One or more assigned users are not developers in this organization", 400);
+            throw new BadRequestException(M.INVALID_ASSIGNEES);
           }
         }
 
@@ -637,7 +632,7 @@ export const updateTaskStatus = async (
         .from(tasks)
         .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
     } else {
-      if (!user.orgId) throw new AppError("No organization assigned", 403);
+      if (!user.orgId) throw new ForbiddenException(M.NO_ORG_ASSIGNED);
       taskQuery = await tx
         .select({ projectId: tasks.projectId, status: tasks.status, parentTaskId: tasks.parentTaskId })
         .from(tasks)
@@ -646,7 +641,7 @@ export const updateTaskStatus = async (
     }
 
     const [task] = taskQuery;
-    if (!task) throw new AppError("Task not found or access denied", 404);
+    if (!task) throw new NotFoundException(M.TASK_NOT_FOUND_OR_DENIED);
 
     // Developer must be assigned to the task
     if (user.role === "developer") {
@@ -654,18 +649,18 @@ export const updateTaskStatus = async (
         .select()
         .from(taskAssignees)
         .where(and(eq(taskAssignees.taskId, id), eq(taskAssignees.userId, user.userId)));
-      if (!assigned) throw new AppError("Access denied. Task not assigned to you.", 403);
+      if (!assigned) throw new ForbiddenException(M.TASK_NOT_ASSIGNED);
     }
 
     // Enforce transition rules
     const allowed = ALLOWED_STATUS_TRANSITIONS[task.status] ?? [];
     if (!allowed.includes(newStatus as TaskStatus)) {
-      throw new AppError(`Cannot transition from "${task.status}" to "${newStatus}"`, 400);
+      throw new BadRequestException(M.INVALID_STATUS_TRANSITION(task.status, newStatus));
     }
 
     // Only admins and superadmins can reopen a completed task
     if (task.status === "completed" && user.role === "developer") {
-      throw new AppError("Only admins and superadmins can reopen completed tasks", 403);
+      throw new ForbiddenException(M.ONLY_ADMINS_CAN_REOPEN);
     }
 
     // Prevent any status change on a subtask if its parent task is already completed
@@ -676,10 +671,7 @@ export const updateTaskStatus = async (
         .where(and(eq(tasks.id, task.parentTaskId), isNull(tasks.deletedAt)));
 
       if (parentTask?.status === "completed") {
-        throw new AppError(
-          "Cannot change the status of a subtask while its parent task is completed. Reopen the parent task first.",
-          400
-        );
+        throw new BadRequestException(M.SUBTASK_LOCKED_BY_PARENT);
       }
     }
 
@@ -695,10 +687,7 @@ export const updateTaskStatus = async (
         ));
 
       if (incompleteSubtasks.length > 0) {
-        throw new AppError(
-          `Cannot complete this task: ${incompleteSubtasks.length} subtask(s) are not yet completed`,
-          400
-        );
+        throw new BadRequestException(M.INCOMPLETE_SUBTASKS(incompleteSubtasks.length));
       }
     }
 
@@ -715,7 +704,7 @@ export const updateTaskStatus = async (
     return updated;
   });
 
-  if (!statusResult) throw new AppError("Task not found", 404);
+  if (!statusResult) throw new NotFoundException(M.TASK_NOT_FOUND);
 
   // Fire-and-forget notifications AFTER transaction commits to avoid connection race conditions
   if (newStatus === "completed") {
@@ -768,10 +757,10 @@ export const softDeleteTask = async (id: string, orgId?: string) => {
         .from(tasks)
         .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
 
-  if (!task) throw new AppError("Task not found", 404);
+  if (!task) throw new NotFoundException(M.TASK_NOT_FOUND);
 
   if (task.status !== "completed") {
-    throw new AppError("Only completed tasks can be deleted", 400);
+    throw new BadRequestException(M.ONLY_COMPLETED_CAN_DELETE);
   }
 
   await db.transaction(async (tx) => {

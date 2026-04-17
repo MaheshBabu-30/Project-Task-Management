@@ -1,35 +1,39 @@
-import { object, string, optional, number, minValue, maxValue, pipe, picklist, array, boolean, uuid, minLength, maxLength, regex, nonEmpty, check } from "valibot";
+import { object, string, optional, number, minValue, maxValue, pipe, picklist, array, boolean, uuid, minLength, maxLength, regex, nonEmpty, check, trim } from "valibot";
+import { taskStatusEnum, taskPriorityEnum } from "../../../drizzle/schema.js";
+
+// Settable statuses — "overdue" is system-set only, never accepted from clients
+const SETTABLE_STATUSES = taskStatusEnum.enumValues.filter((s) => s !== "overdue") as ["to_do", "in_progress", "on_hold", "completed"];
 
 export const createTaskSchema = object({
-  title: pipe(string(), nonEmpty("Title is required"), minLength(1, "Title is required"), maxLength(300, "Title must be at most 300 characters")),
-  description: optional(pipe(string(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
-  priority: optional(picklist(["low", "medium", "high", "urgent"] as const, "Priority must be low, medium, high, or urgent")),
-  dueDate: optional(pipe(string(), nonEmpty("Due date cannot be empty"), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"), check((v) => !isNaN(Date.parse(v)), "Invalid date value"))),
+  title: pipe(string(), trim(), nonEmpty("Title is required"), minLength(1, "Title is required"), maxLength(300, "Title must be at most 300 characters")),
+  description: optional(pipe(string(), trim(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
+  priority: optional(picklist(taskPriorityEnum.enumValues, "Priority must be low, medium, high, or urgent")),
+  dueDate: optional(pipe(string(), trim(), nonEmpty("Due date cannot be empty"), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"), check((v) => !isNaN(Date.parse(v)), "Invalid date value"))),
   projectId: pipe(string(), nonEmpty("projectId is required"), uuid("Invalid project ID")),
   parentTaskId: optional(pipe(string(), nonEmpty("parentTaskId cannot be empty"), uuid("Invalid parent task ID"))),
   assignedUserIds: optional(array(pipe(string(), uuid("Invalid user ID format")))),
 });
 
 export const updateTaskSchema = object({
-  title: optional(pipe(string(), nonEmpty("Title cannot be empty"), minLength(1, "Title is required"), maxLength(300, "Title must be at most 300 characters"))),
-  description: optional(pipe(string(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
-  priority: optional(picklist(["low", "medium", "high", "urgent"] as const, "Priority must be low, medium, high, or urgent")),
-  dueDate: optional(pipe(string(), nonEmpty("Due date cannot be empty"), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"), check((v) => !isNaN(Date.parse(v)), "Invalid date value"))),
+  title: optional(pipe(string(), trim(), nonEmpty("Title cannot be empty"), minLength(1, "Title is required"), maxLength(300, "Title must be at most 300 characters"))),
+  description: optional(pipe(string(), trim(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
+  priority: optional(picklist(taskPriorityEnum.enumValues, "Priority must be low, medium, high, or urgent")),
+  dueDate: optional(pipe(string(), trim(), nonEmpty("Due date cannot be empty"), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"), check((v) => !isNaN(Date.parse(v)), "Invalid date value"))),
   assignedUserIds: optional(array(pipe(string(), uuid("Invalid user ID format")))),
-  status: optional(picklist(["to_do", "in_progress", "on_hold", "completed"] as const, "Invalid status")),
+  status: optional(picklist(SETTABLE_STATUSES, "Invalid status")),
   // projectId intentionally excluded — tasks cannot be moved between projects
 });
 
 // For PATCH /tasks/:id/status — developer + admin
 export const updateTaskStatusSchema = object({
-  status: picklist(["to_do", "in_progress", "on_hold", "completed"] as const, "Status must be to_do, in_progress, on_hold, or completed"),
+  status: picklist(SETTABLE_STATUSES, "Status must be to_do, in_progress, on_hold, or completed"),
 });
 
 export const taskQuerySchema = object({
   id: optional(pipe(string(), uuid())),
   orgId: optional(pipe(string(), uuid())),
-  status: optional(picklist(["to_do", "in_progress", "on_hold", "overdue", "completed"] as const)),
-  priority: optional(picklist(["low", "medium", "high", "urgent"] as const)),
+  status: optional(picklist(taskStatusEnum.enumValues, "Invalid status")),
+  priority: optional(picklist(taskPriorityEnum.enumValues, "Invalid priority")),
   search: optional(pipe(string(), maxLength(200, "Search must be at most 200 characters"))),
   projectId: optional(pipe(string(), uuid())),
   parentTaskId: optional(pipe(string(), uuid())),

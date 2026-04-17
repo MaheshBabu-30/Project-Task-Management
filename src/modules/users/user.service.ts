@@ -2,22 +2,19 @@ import bcrypt from "bcrypt";
 import { db } from "../../config/db.js";
 import { users, orgMembers, projectMembers, taskAssignees, tasks } from "../../../drizzle/schema.js";
 import { eq, ilike, and, asc, desc, isNull, inArray, notInArray, count, sql } from "drizzle-orm";
-import { AppError } from "../../exceptions/AppError.js";
+import { BadRequestException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
+import {
+  ADMIN_DEVELOPER_ONLY, EMAIL_ALREADY_REGISTERED, USER_CREATE_FAILED, ADMIN_NO_ORG,
+  TASK_NOT_FOUND, NOT_PROJECT_MEMBER, USER_NOT_IN_ORG, USER_NOT_FOUND,
+  CANNOT_DEACTIVATE_SELF, ADMIN_DEVELOPER_STATUS_ONLY, WRONG_ORG_USER,
+} from "../../constants/appMessages.js";
 
 interface UserQuery {
-  id?: string;
-  name?: string;
-  email?: string;
+  id?: string; name?: string; email?: string;
   role?: "superadmin" | "admin" | "developer";
   status?: "active" | "inactive";
-  orgId?: string;
-  projectId?: string;
-  taskId?: string;
-  page?: number;
-  limit?: number;
-  sortBy?: string;
-  order?: string;
-  unassigned?: boolean;
+  orgId?: string; projectId?: string; taskId?: string;
+  page?: number; limit?: number; sortBy?: string; order?: string; unassigned?: boolean;
 }
 
 // ─── Create User ─────────────────────────────────────────────────────────────
@@ -26,14 +23,12 @@ export const createUser = async (
   data: { name: string; email: string; password: string; role: "admin" | "developer" },
   requester: { userId: string; role: "superadmin" | "admin" | "developer"; orgId?: string }
 ) => {
-  // Admin can only create developers
   if (requester.role === "admin" && data.role !== "developer") {
-    throw new AppError("Admins can only create developer accounts", 403);
+    throw new ForbiddenException(ADMIN_DEVELOPER_ONLY);
   }
 
-  // Check email uniqueness
   const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, data.email));
-  if (existing) throw new AppError("Email already registered", 409);
+  if (existing) throw new ConflictException(EMAIL_ALREADY_REGISTERED);
 
   const passwordHash = await bcrypt.hash(data.password, 10);
 
@@ -43,11 +38,10 @@ export const createUser = async (
       .values({ name: data.name, email: data.email, passwordHash, role: data.role })
       .returning({ id: users.id, name: users.name, email: users.email, role: users.role, status: users.status });
 
-    if (!newUser) throw new AppError("Failed to create user", 500);
+    if (!newUser) throw new InternalServerException(USER_CREATE_FAILED);
 
-    // Admin creating developer → auto-assign to admin's org
     if (requester.role === "admin") {
-      if (!requester.orgId) throw new AppError("Admin has no organization", 403);
+      if (!requester.orgId) throw new ForbiddenException(ADMIN_NO_ORG);
       await tx.insert(orgMembers).values({ orgId: requester.orgId, userId: newUser.id, role: "developer" });
     }
 
@@ -67,18 +61,15 @@ export const getUsers = async (
 
   const filters = [isNull(users.deletedAt)];
 
-  // ─── Developer Scoping ───────────────────────────────────────────────────────
-  // Developers can only see users within a specific project or task context.
   if (requesterRole === "developer" && requesterId) {
     if (taskId) {
-      // Verify the developer is a member of the project this task belongs to
       const [taskRow] = await db
         .select({ projectId: tasks.projectId })
         .from(tasks)
         .where(and(eq(tasks.id, taskId), isNull(tasks.deletedAt)))
         .limit(1);
 
-      if (!taskRow) throw new AppError("Task not found", 404);
+      if (!taskRow) throw new NotFoundException(TASK_NOT_FOUND);
 
       const [membership] = await db
         .select({ userId: projectMembers.userId })
@@ -86,112 +77,54 @@ export const getUsers = async (
         .where(and(eq(projectMembers.projectId, taskRow.projectId), eq(projectMembers.userId, requesterId)))
         .limit(1);
 
-      if (!membership) throw new AppError("You are not a member of this project", 403);
+      if (!membership) throw new ForbiddenException(NOT_PROJECT_MEMBER);
 
-      // Scope to users assigned to this task only
-      const assigneeSubquery = db
-        .select({ userId: taskAssignees.userId })
-        .from(taskAssignees)
-        .where(eq(taskAssignees.taskId, taskId));
-
-      filters.push(inArray(users.id, assigneeSubquery));
-
+      filters.push(inArray(users.id, db.select({ userId: taskAssignees.userId }).from(taskAssignees).where(eq(taskAssignees.taskId, taskId))));
     } else if (projectId) {
-      // Verify the developer is a member of this project
       const [membership] = await db
         .select({ userId: projectMembers.userId })
         .from(projectMembers)
         .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, requesterId)))
         .limit(1);
 
-      if (!membership) throw new AppError("You are not a member of this project", 403);
+      if (!membership) throw new ForbiddenException(NOT_PROJECT_MEMBER);
 
-      // Scope to members of this project only
-      const projectMemberSubquery = db
-        .select({ userId: projectMembers.userId })
-        .from(projectMembers)
-        .where(eq(projectMembers.projectId, projectId));
-
-      filters.push(inArray(users.id, projectMemberSubquery));
-
+      filters.push(inArray(users.id, db.select({ userId: projectMembers.userId }).from(projectMembers).where(eq(projectMembers.projectId, projectId))));
     } else {
-      // No project or task context — developer sees no one
       return { data: [], totalRecords: 0 };
     }
 
-    // Apply standard filters after scoping (skip org/role filters for developer)
     if (id) filters.push(eq(users.id, id));
     if (name) filters.push(ilike(users.name, `%${name}%`));
     if (status) filters.push(eq(users.status, status));
 
     const whereCondition = and(...filters);
     const offset = (page - 1) * limit;
-
     const validColumns: Record<string, any> = { id: users.id, name: users.name, email: users.email, role: users.role, status: users.status, createdAt: users.createdAt };
-    const orderColumn = validColumns[sortBy] || users.id;
-    const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
+    const orderDirection = order === "desc" ? desc(validColumns[sortBy] || users.id) : asc(validColumns[sortBy] || users.id);
 
-    const data = await db
-      .select({
-        id: users.id,
-        name: users.name,
-        email: users.email,
-        role: users.role,
-        status: users.status,
-        phone: users.phone,
-        avatarUrl: users.avatarUrl,
-        lastLoginAt: users.lastLoginAt,
-        createdAt: users.createdAt,
-        projectCount: sql<number>`(
-          SELECT COUNT(*) FROM project_members pm
-          INNER JOIN projects p ON p.id = pm.project_id
-          WHERE pm.user_id = "users"."id" AND p.deleted_at IS NULL
-        )`.mapWith(Number),
-        taskCount: sql<number>`(
-          SELECT COUNT(*) FROM task_assignees ta
-          INNER JOIN tasks t ON t.id = ta.task_id
-          WHERE ta.user_id = "users"."id" AND t.deleted_at IS NULL
-        )`.mapWith(Number),
-        inProgressCount: sql<number>`(
-          SELECT COUNT(*) FROM task_assignees ta
-          INNER JOIN tasks t ON t.id = ta.task_id
-          WHERE ta.user_id = "users"."id" AND t.status = 'in_progress' AND t.deleted_at IS NULL
-        )`.mapWith(Number),
-        toDoCount: sql<number>`(
-          SELECT COUNT(*) FROM task_assignees ta
-          INNER JOIN tasks t ON t.id = ta.task_id
-          WHERE ta.user_id = "users"."id" AND t.status = 'to_do' AND t.deleted_at IS NULL
-        )`.mapWith(Number),
-      })
-      .from(users)
-      .where(whereCondition)
-      .orderBy(orderDirection)
-      .limit(limit)
-      .offset(offset);
+    const data = await db.select({
+      id: users.id, name: users.name, email: users.email, role: users.role, status: users.status,
+      phone: users.phone, avatarUrl: users.avatarUrl, lastLoginAt: users.lastLoginAt, createdAt: users.createdAt,
+      projectCount: sql<number>`(SELECT COUNT(*) FROM project_members pm INNER JOIN projects p ON p.id = pm.project_id WHERE pm.user_id = "users"."id" AND p.deleted_at IS NULL)`.mapWith(Number),
+      taskCount: sql<number>`(SELECT COUNT(*) FROM task_assignees ta INNER JOIN tasks t ON t.id = ta.task_id WHERE ta.user_id = "users"."id" AND t.deleted_at IS NULL)`.mapWith(Number),
+      inProgressCount: sql<number>`(SELECT COUNT(*) FROM task_assignees ta INNER JOIN tasks t ON t.id = ta.task_id WHERE ta.user_id = "users"."id" AND t.status = 'in_progress' AND t.deleted_at IS NULL)`.mapWith(Number),
+      toDoCount: sql<number>`(SELECT COUNT(*) FROM task_assignees ta INNER JOIN tasks t ON t.id = ta.task_id WHERE ta.user_id = "users"."id" AND t.status = 'to_do' AND t.deleted_at IS NULL)`.mapWith(Number),
+    }).from(users).where(whereCondition).orderBy(orderDirection).limit(limit).offset(offset);
 
     const countResult = await db.select({ total: count() }).from(users).where(whereCondition);
-
     return { data, totalRecords: countResult[0]?.total ?? 0 };
   }
 
-  // ─── Admin / Superadmin Scoping ──────────────────────────────────────────────
+  // ─── Admin / Superadmin Scoping ───────────────────────────────────────────────
   const targetOrgId = contextOrgId || orgId;
 
   if (unassigned && requesterRole === "superadmin") {
-    // Return users who are not a member of any organization
-    const assignedSubquery = db.select({ userId: orgMembers.userId }).from(orgMembers);
-    filters.push(notInArray(users.id, assignedSubquery));
+    filters.push(notInArray(users.id, db.select({ userId: orgMembers.userId }).from(orgMembers)));
   } else if (targetOrgId) {
-    // Join with orgMembers to find users in this org
-    const subquery = db
-      .select({ userId: orgMembers.userId })
-      .from(orgMembers)
-      .where(eq(orgMembers.orgId, targetOrgId));
-
-    filters.push(inArray(users.id, subquery));
+    filters.push(inArray(users.id, db.select({ userId: orgMembers.userId }).from(orgMembers).where(eq(orgMembers.orgId, targetOrgId))));
   }
 
-  // 2. Additional Filters
   if (id) filters.push(eq(users.id, id));
   if (name) filters.push(ilike(users.name, `%${name}%`));
   if (email) filters.push(ilike(users.email, `%${email}%`));
@@ -200,97 +133,50 @@ export const getUsers = async (
 
   const whereCondition = and(...filters);
   const offset = (page - 1) * limit;
-
-  // 3. Sorting logic
   const validColumns: Record<string, any> = { id: users.id, name: users.name, email: users.email, role: users.role, status: users.status, createdAt: users.createdAt };
-  const orderColumn = validColumns[sortBy] || users.id;
-  const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
+  const orderDirection = order === "desc" ? desc(validColumns[sortBy] || users.id) : asc(validColumns[sortBy] || users.id);
 
-  const data = await db
-    .select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      role: users.role,
-      status: users.status,
-      phone: users.phone,
-      avatarUrl: users.avatarUrl,
-      lastLoginAt: users.lastLoginAt,
-      createdAt: users.createdAt,
-      projectCount: sql<number>`(
-        SELECT COUNT(*) FROM project_members pm
-        INNER JOIN projects p ON p.id = pm.project_id
-        WHERE pm.user_id = "users"."id" AND p.deleted_at IS NULL
-      )`.mapWith(Number),
-      taskCount: sql<number>`(
-        SELECT COUNT(*) FROM task_assignees ta
-        INNER JOIN tasks t ON t.id = ta.task_id
-        WHERE ta.user_id = "users"."id" AND t.deleted_at IS NULL
-      )`.mapWith(Number),
-      inProgressCount: sql<number>`(
-        SELECT COUNT(*) FROM task_assignees ta
-        INNER JOIN tasks t ON t.id = ta.task_id
-        WHERE ta.user_id = "users"."id" AND t.status = 'in_progress' AND t.deleted_at IS NULL
-      )`.mapWith(Number),
-      toDoCount: sql<number>`(
-        SELECT COUNT(*) FROM task_assignees ta
-        INNER JOIN tasks t ON t.id = ta.task_id
-        WHERE ta.user_id = "users"."id" AND t.status = 'to_do' AND t.deleted_at IS NULL
-      )`.mapWith(Number),
-    })
-    .from(users)
-    .where(whereCondition)
-    .orderBy(orderDirection)
-    .limit(limit)
-    .offset(offset);
+  const data = await db.select({
+    id: users.id, name: users.name, email: users.email, role: users.role, status: users.status,
+    phone: users.phone, avatarUrl: users.avatarUrl, lastLoginAt: users.lastLoginAt, createdAt: users.createdAt,
+    projectCount: sql<number>`(SELECT COUNT(*) FROM project_members pm INNER JOIN projects p ON p.id = pm.project_id WHERE pm.user_id = "users"."id" AND p.deleted_at IS NULL)`.mapWith(Number),
+    taskCount: sql<number>`(SELECT COUNT(*) FROM task_assignees ta INNER JOIN tasks t ON t.id = ta.task_id WHERE ta.user_id = "users"."id" AND t.deleted_at IS NULL)`.mapWith(Number),
+    inProgressCount: sql<number>`(SELECT COUNT(*) FROM task_assignees ta INNER JOIN tasks t ON t.id = ta.task_id WHERE ta.user_id = "users"."id" AND t.status = 'in_progress' AND t.deleted_at IS NULL)`.mapWith(Number),
+    toDoCount: sql<number>`(SELECT COUNT(*) FROM task_assignees ta INNER JOIN tasks t ON t.id = ta.task_id WHERE ta.user_id = "users"."id" AND t.status = 'to_do' AND t.deleted_at IS NULL)`.mapWith(Number),
+  }).from(users).where(whereCondition).orderBy(orderDirection).limit(limit).offset(offset);
 
-  // 4. Count for pagination
-  const countResult = await db
-    .select({ total: count() })
-    .from(users)
-    .where(whereCondition);
-
+  const countResult = await db.select({ total: count() }).from(users).where(whereCondition);
   return { data, totalRecords: countResult[0]?.total ?? 0 };
 };
 
 // ─── Get User By ID ───────────────────────────────────────────────────────────
 
 export const getUserById = async (userId: string, contextOrgId?: string) => {
-  const filters = [eq(users.id, userId), isNull(users.deletedAt)];
-
   if (contextOrgId) {
-    const subquery = db
+    const [membership] = await db
       .select({ userId: orgMembers.userId })
       .from(orgMembers)
       .where(and(eq(orgMembers.orgId, contextOrgId), eq(orgMembers.userId, userId)));
-    
-    const [membership] = await subquery;
-    if (!membership) throw new AppError("User not found in your organization", 404);
+
+    if (!membership) throw new NotFoundException(USER_NOT_IN_ORG);
   }
 
   const [user] = await db
     .select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      role: users.role,
-      status: users.status,
-      phone: users.phone,
-      avatarUrl: users.avatarUrl,
-      lastLoginAt: users.lastLoginAt,
-      createdAt: users.createdAt,
-      updatedAt: users.updatedAt,
+      id: users.id, name: users.name, email: users.email, role: users.role, status: users.status,
+      phone: users.phone, avatarUrl: users.avatarUrl, lastLoginAt: users.lastLoginAt,
+      createdAt: users.createdAt, updatedAt: users.updatedAt,
     })
     .from(users)
-    .where(and(...filters))
+    .where(and(eq(users.id, userId), isNull(users.deletedAt)))
     .limit(1);
 
-  if (!user) throw new AppError("User not found", 404);
+  if (!user) throw new NotFoundException(USER_NOT_FOUND);
 
   return user;
 };
 
-// ─── Update User Status (ADMIN only) ──────────────────────────────────────────
+// ─── Update User Status ───────────────────────────────────────────────────────
 
 export const updateUserStatus = async (
   id: string,
@@ -299,46 +185,33 @@ export const updateUserStatus = async (
   requesterRole: "superadmin" | "admin" | "developer",
   adminOrgId?: string
 ) => {
-  // 1. Prevent self-deactivation
-  if (id === requesterId && status === "inactive") {
-    throw new AppError("You cannot deactivate your own account.", 400);
-  }
+  if (id === requesterId && status === "inactive") throw new BadRequestException(CANNOT_DEACTIVATE_SELF);
 
-  // 2. Admin must check org membership; superadmin skips this check
   if (requesterRole === "admin") {
-    if (!adminOrgId) throw new AppError("Admin has no organization", 403);
+    if (!adminOrgId) throw new ForbiddenException(ADMIN_NO_ORG);
 
-    // Admins can only change status of developers — not other admins
     const [targetUser] = await db
       .select({ role: users.role })
       .from(users)
       .where(and(eq(users.id, id), isNull(users.deletedAt)));
 
-    if (!targetUser) throw new AppError("User not found", 404);
-    if (targetUser.role !== "developer") {
-      throw new AppError("Admins can only change the status of developer accounts", 403);
-    }
+    if (!targetUser) throw new NotFoundException(USER_NOT_FOUND);
+    if (targetUser.role !== "developer") throw new ForbiddenException(ADMIN_DEVELOPER_STATUS_ONLY);
 
     const [membership] = await db
       .select()
       .from(orgMembers)
       .where(and(eq(orgMembers.orgId, adminOrgId), eq(orgMembers.userId, id)));
 
-    if (!membership) {
-      throw new AppError("You can only manage users within your own organization", 403);
-    }
+    if (!membership) throw new ForbiddenException(WRONG_ORG_USER);
   }
 
   const [updated] = await db
     .update(users)
     .set({ status, updatedAt: new Date() })
     .where(eq(users.id, id))
-    .returning({
-      id: users.id,
-      name: users.name,
-      status: users.status
-    });
-  
+    .returning({ id: users.id, name: users.name, status: users.status });
+
   return updated;
 };
 
@@ -350,16 +223,9 @@ export const updateUserProfile = async (id: string, data: any) => {
     .set({ ...data, updatedAt: new Date() })
     .where(eq(users.id, id))
     .returning({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      role: users.role,
-      status: users.status,
-      phone: users.phone,
-      avatarUrl: users.avatarUrl,
-      lastLoginAt: users.lastLoginAt,
-      createdAt: users.createdAt,
-      updatedAt: users.updatedAt,
+      id: users.id, name: users.name, email: users.email, role: users.role, status: users.status,
+      phone: users.phone, avatarUrl: users.avatarUrl, lastLoginAt: users.lastLoginAt,
+      createdAt: users.createdAt, updatedAt: users.updatedAt,
     });
 
   return updated;

@@ -1,7 +1,7 @@
 import { db } from "../../config/db.js";
 import { notifications } from "../../../drizzle/schema.js";
 import { eq, and, isNull, asc, desc, count } from "drizzle-orm";
-import { AppError } from "../../exceptions/AppError.js";
+import { NotFoundException } from "../../exceptions/index.js";
 import type { NotificationType } from "../../constants/notification.constants.js";
 
 // ─── Create Notification (internal helper) ────────────────────────────────────
@@ -56,7 +56,7 @@ export const markNotificationRead = async (notificationId: string, userId: strin
     .from(notifications)
     .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)));
 
-  if (!notification) throw new AppError("Notification not found", 404);
+  if (!notification) throw new NotFoundException("Notification not found");
   if (notification.readAt) return notification; // already read
 
   const [updated] = await db

@@ -3,7 +3,8 @@ import type { Context } from "hono";
 import { getPresignedUrlSchema } from "./upload.schema.js";
 import { generatePresignedUploadUrl } from "./upload.service.js";
 import { successResponse } from "../../utils/response.js";
-import { AppError } from "../../exceptions/AppError.js";
+import { ForbiddenException } from "../../exceptions/index.js";
+import { NO_ORG_ASSIGNED } from "../../constants/appMessages.js";
 
 export const getUploadUrl = async (c: Context) => {
   const user = c.get("user");
@@ -11,7 +12,7 @@ export const getUploadUrl = async (c: Context) => {
   const data = parse(getPresignedUrlSchema, body);
 
   if (!user.orgId && user.role !== "superadmin") {
-    throw new AppError("Access denied. No organization assigned.", 403);
+    throw new ForbiddenException(NO_ORG_ASSIGNED);
   }
 
   const result = await generatePresignedUploadUrl({

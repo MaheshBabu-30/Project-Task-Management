@@ -1,7 +1,8 @@
 import { db } from "../../config/db.js";
 import { comments, tasks, projects, taskAssignees, users } from "../../../drizzle/schema.js";
 import { eq, and, isNull, asc, desc, count, inArray } from "drizzle-orm";
-import { AppError } from "../../exceptions/AppError.js";
+import { ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
+import { TASK_NOT_FOUND, NO_ORG_ASSIGNED, ACCESS_DENIED, TASK_NOT_ASSIGNED, COMMENT_NOT_FOUND, COMMENT_EDIT_OWN, COMMENT_DELETE_OWN } from "../../constants/appMessages.js";
 import { createNotification } from "../notifications/notification.service.js";
 import { catchError } from "../../utils/logger.js";
 import type { UserSummary } from "../../types/common.types.js";
@@ -16,24 +17,24 @@ const verifyTaskAccess = async (taskId: string, user: User) => {
     .from(tasks)
     .where(and(eq(tasks.id, taskId), isNull(tasks.deletedAt)));
 
-  if (!task) throw new AppError("Task not found", 404);
+  if (!task) throw new NotFoundException(TASK_NOT_FOUND);
 
   if (user.role !== "superadmin") {
-    if (!user.orgId) throw new AppError("No organization assigned", 403);
+    if (!user.orgId) throw new ForbiddenException(NO_ORG_ASSIGNED);
 
     const [project] = await db
       .select({ orgId: projects.orgId })
       .from(projects)
       .where(eq(projects.id, task.projectId));
 
-    if (project?.orgId !== user.orgId) throw new AppError("Access denied", 403);
+    if (project?.orgId !== user.orgId) throw new ForbiddenException(ACCESS_DENIED);
 
     if (user.role === "developer") {
       const [assigned] = await db
         .select()
         .from(taskAssignees)
         .where(and(eq(taskAssignees.taskId, taskId), eq(taskAssignees.userId, user.userId)));
-      if (!assigned) throw new AppError("Access denied. Task not assigned to you.", 403);
+      if (!assigned) throw new ForbiddenException(TASK_NOT_ASSIGNED);
     }
   }
 
@@ -68,7 +69,6 @@ export const getComments = async (
     db.select({ total: count() }).from(comments).where(whereCondition),
   ]);
 
-  // Batch fetch authors
   const authorIds = [...new Set(rawData.map((c) => c.authorId).filter(Boolean))] as string[];
   const authorsMap: Record<string, UserSummary> = {};
   if (authorIds.length > 0) {
@@ -97,13 +97,14 @@ export const createComment = async (taskId: string, body: string, user: User) =>
     .values({ taskId, authorId: user.userId, body })
     .returning();
 
-  // Notify all task assignees except the commenter (fire-and-forget)
+  if (!comment) throw new InternalServerException("Failed to create comment");
+
   db.select({ userId: taskAssignees.userId })
     .from(taskAssignees)
     .where(eq(taskAssignees.taskId, taskId))
     .then((assignees) => {
       for (const assignee of assignees) {
-        if (assignee.userId === user.userId) continue; // skip the commenter
+        if (assignee.userId === user.userId) continue;
         createNotification({
           userId: assignee.userId,
           type: "comment_added",
@@ -132,15 +133,11 @@ export const updateComment = async (commentId: string, body: string, user: User)
     .from(comments)
     .where(and(eq(comments.id, commentId), isNull(comments.deletedAt)));
 
-  if (!comment) throw new AppError("Comment not found", 404);
+  if (!comment) throw new NotFoundException(COMMENT_NOT_FOUND);
 
-  // Verify requester still has access to the task (prevents cross-org edits)
   await verifyTaskAccess(comment.taskId, user);
 
-  // Only the author can edit their own comment
-  if (comment.authorId !== user.userId) {
-    throw new AppError("You can only edit your own comments", 403);
-  }
+  if (comment.authorId !== user.userId) throw new ForbiddenException(COMMENT_EDIT_OWN);
 
   const [updated] = await db
     .update(comments)
@@ -148,7 +145,7 @@ export const updateComment = async (commentId: string, body: string, user: User)
     .where(eq(comments.id, commentId))
     .returning();
 
-  if (!updated) throw new AppError("Comment not found", 404);
+  if (!updated) throw new NotFoundException(COMMENT_NOT_FOUND);
 
   const [author] = updated.authorId
     ? await db
@@ -168,14 +165,12 @@ export const deleteComment = async (commentId: string, user: User) => {
     .from(comments)
     .where(and(eq(comments.id, commentId), isNull(comments.deletedAt)));
 
-  if (!comment) throw new AppError("Comment not found", 404);
+  if (!comment) throw new NotFoundException(COMMENT_NOT_FOUND);
 
-  // Verify requester has access to the task (prevents cross-org IDOR for admins)
   await verifyTaskAccess(comment.taskId, user);
 
-  // Author can delete their own; admin can delete any within their org
   if (user.role !== "admin" && user.role !== "superadmin" && comment.authorId !== user.userId) {
-    throw new AppError("You can only delete your own comments", 403);
+    throw new ForbiddenException(COMMENT_DELETE_OWN);
   }
 
   await db
