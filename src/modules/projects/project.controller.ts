@@ -128,7 +128,7 @@ export const updateProjectDetails = async (c: Context) => {
   const updated = await updateProject(id, data, user.orgId);
 
   createAuditLog({
-    orgId: user.orgId,
+    orgId: updated.orgId,
     actorId: user.userId,
     action: "project.updated",
     entityType: "project",
@@ -148,7 +148,7 @@ export const deleteProjectRecord = async (c: Context) => {
   const result = await deleteProject(id, user.orgId);
 
   createAuditLog({
-    orgId: user.orgId,
+    orgId: result.orgId,
     actorId: user.userId,
     action: "project.deleted",
     entityType: "project",
@@ -156,5 +156,5 @@ export const deleteProjectRecord = async (c: Context) => {
     ipAddress: getIp(c),
   }).catch(catchError("project.controller:auditLog"));
 
-  return successResponse(c, result);
+  return successResponse(c, { message: result.message });
 };

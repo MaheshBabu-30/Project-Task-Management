@@ -394,5 +394,5 @@ export const deleteProject = async (id: string, orgId?: string) => {
     await tx.update(tasks).set({ deletedAt: new Date() }).where(eq(tasks.projectId, id));
   });
 
-  return { message: "Project and associated tasks deleted successfully" };
+  return { message: "Project and associated tasks deleted successfully", orgId: project.orgId };
 };

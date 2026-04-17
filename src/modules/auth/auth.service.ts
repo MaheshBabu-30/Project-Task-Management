@@ -138,6 +138,12 @@ export const requestOtp = async (email: string) => {
   return { message: "Verification code sent to your email" };
 };
 
+// ─── OTP Attempt Tracking (in-memory) ────────────────────────────────────────
+// Tracks failed attempts per OTP record ID. Cleared when the OTP is consumed or invalidated.
+
+const otpAttempts = new Map<string, number>();
+const MAX_OTP_ATTEMPTS = 5;
+
 // ─── Verify OTP ───────────────────────────────────────────────────────────────
 
 export const verifyOtp = async (email: string, otp: string) => {
@@ -152,7 +158,16 @@ export const verifyOtp = async (email: string, otp: string) => {
 
   if (latestOtp.expiresAt < new Date()) {
     await db.delete(otps).where(eq(otps.id, latestOtp.id));
+    otpAttempts.delete(latestOtp.id);
     throw new AppError("Verification code has expired. Please request a new one.", 400);
+  }
+
+  // Enforce max attempt limit — invalidate OTP after too many wrong guesses
+  const attempts = (otpAttempts.get(latestOtp.id) ?? 0) + 1;
+  if (attempts > MAX_OTP_ATTEMPTS) {
+    await db.delete(otps).where(eq(otps.id, latestOtp.id));
+    otpAttempts.delete(latestOtp.id);
+    throw new AppError("Too many failed attempts. Please request a new verification code.", 400);
   }
 
   // Recompute HMAC and compare
@@ -161,11 +176,15 @@ export const verifyOtp = async (email: string, otp: string) => {
   const incoming = createHmac("sha256", otpSecret).update(otp).digest("hex");
   const isValid = incoming === latestOtp.otpHash;
 
-  if (!isValid) throw new AppError("Invalid verification code", 400);
+  if (!isValid) {
+    otpAttempts.set(latestOtp.id, attempts);
+    throw new AppError("Invalid verification code", 400);
+  }
 
   // Atomic delete by specific ID — prevents concurrent requests from consuming the same OTP
   const deleted = await db.delete(otps).where(eq(otps.id, latestOtp.id)).returning({ id: otps.id });
   if (deleted.length === 0) throw new AppError("Verification code already used. Please request a new one.", 400);
+  otpAttempts.delete(latestOtp.id);
 
   const [user] = await db
     .select()

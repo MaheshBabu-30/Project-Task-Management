@@ -1,4 +1,7 @@
 import { verifyToken } from "../utils/jwt.js";
+import { db } from "../config/db.js";
+import { users } from "../../drizzle/schema.js";
+import { and, eq, isNull } from "drizzle-orm";
 import type { Context, Next } from "hono";
 
 export const authMiddleware = async (c: Context, next: Next) => {
@@ -16,9 +19,14 @@ export const authMiddleware = async (c: Context, next: Next) => {
   try {
     const payload = verifyToken(token);
 
-    // Status is embedded in the JWT payload at login/refresh time.
-    // Deactivation takes effect at next token refresh (max ~1h delay).
-    if (payload.status === "inactive") {
+    // Always verify status against the DB — JWT payload can be stale for up to
+    // the token TTL, meaning a deactivated/deleted user would retain access.
+    const [user] = await db
+      .select({ status: users.status })
+      .from(users)
+      .where(and(eq(users.id, payload.userId), isNull(users.deletedAt)));
+
+    if (!user || user.status === "inactive") {
       return c.json({ message: "User account is deactivated. Access denied." }, 403);
     }
 
