@@ -27,6 +27,7 @@ export const updateTaskStatusSchema = object({
 
 export const taskQuerySchema = object({
   id: optional(pipe(string(), uuid())),
+  orgId: optional(pipe(string(), uuid())),
   status: optional(picklist(["to_do", "in_progress", "on_hold", "overdue", "completed"] as const)),
   priority: optional(picklist(["low", "medium", "high", "urgent"] as const)),
   search: optional(pipe(string(), maxLength(200, "Search must be at most 200 characters"))),

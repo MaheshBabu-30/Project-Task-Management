@@ -13,6 +13,7 @@ type TaskRecord = InferSelectModel<typeof tasks>;
 
 interface TaskQuery {
   id?: string;
+  orgId?: string;
   status?: TaskStatus;
   priority?: TaskPriority;
   search?: string;
@@ -222,7 +223,7 @@ export const getTasks = async (
   query: TaskQuery,
   user: { userId: string; role: string; orgId?: string }
 ) => {
-  const { id, status, priority, search, projectId, parentTaskId, assignedUserId, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
+  const { id, orgId, status, priority, search, projectId, parentTaskId, assignedUserId, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
 
   const filters = [showDeleted ? isNotNull(tasks.deletedAt) : isNull(tasks.deletedAt)];
 
@@ -234,14 +235,23 @@ export const getTasks = async (
   }
 
   // 1. Scoping by Org (via Project Join)
-  if (user.role !== "superadmin") {
+  if (user.role === "superadmin") {
+    // Superadmin can optionally filter by orgId
+    if (orgId) {
+      const orgProjectIds = db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.orgId, orgId));
+      filters.push(inArray(tasks.projectId, orgProjectIds));
+    }
+  } else {
     if (!user.orgId) throw new AppError("No organization assigned", 403);
-    
+
     const orgProjectIds = db
       .select({ id: projects.id })
       .from(projects)
       .where(eq(projects.orgId, user.orgId));
-    
+
     filters.push(inArray(tasks.projectId, orgProjectIds));
   }
 
