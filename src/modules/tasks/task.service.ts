@@ -45,6 +45,20 @@ type TaskUpdatePayload = {
   updatedAt?: Date;
 };
 
+// ─── Compute Effective Task Status ───────────────────────────────────────────
+
+const getEffectiveStatus = (task: { dueDate: string | null; status: string }): TaskStatus => {
+  const today = new Date().toISOString().split("T")[0]!;
+  if (
+    task.dueDate &&
+    task.dueDate < today &&
+    !["completed", "on_hold", "overdue"].includes(task.status)
+  ) {
+    return "overdue";
+  }
+  return task.status as TaskStatus;
+};
+
 // ─── Allowed Task Status Transitions ─────────────────────────────────────────
 
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
@@ -322,6 +336,7 @@ export const getTasks = async (
 
   const dataWithAssignees = data.map((task) => ({
     ...task,
+    status: getEffectiveStatus(task),
     assignees: assigneesMap[task.id] || [],
     creator: task.createdBy ? (creatorsMap[task.createdBy] ?? null) : null,
   }));
@@ -414,11 +429,11 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
         subtaskAssigneesMap[a.taskId!]!.push({ id: a.id, name: a.name, email: a.email, avatarUrl: a.avatarUrl });
       });
 
-      subtasks = rawSubtasks.map((s) => ({ ...s, assignees: subtaskAssigneesMap[s.id] ?? [] }));
+      subtasks = rawSubtasks.map((s) => ({ ...s, status: getEffectiveStatus(s), assignees: subtaskAssigneesMap[s.id] ?? [] }));
     }
   }
 
-  return { ...task, assignees, creator: creator ?? null, subtasks };
+  return { ...task, status: getEffectiveStatus(task), assignees, creator: creator ?? null, subtasks };
 };
 
 // ─── Update Task ──────────────────────────────────────────────────────────────
@@ -430,12 +445,12 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
     // 1. Check if task belongs to org
     const [task] = orgId
       ? await tx
-          .select({ projectId: tasks.projectId, status: tasks.status })
+          .select({ projectId: tasks.projectId, status: tasks.status, parentTaskId: tasks.parentTaskId })
           .from(tasks)
           .innerJoin(projects, eq(tasks.projectId, projects.id))
           .where(and(eq(tasks.id, id), eq(projects.orgId, orgId), isNull(tasks.deletedAt)))
       : await tx
-          .select({ projectId: tasks.projectId, status: tasks.status })
+          .select({ projectId: tasks.projectId, status: tasks.status, parentTaskId: tasks.parentTaskId })
           .from(tasks)
           .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
 
@@ -446,6 +461,40 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
       const allowed = ALLOWED_TRANSITIONS[task.status] ?? [];
       if (!allowed.includes(data.status)) {
         throw new AppError(`Cannot transition from "${task.status}" to "${data.status}"`, 400);
+      }
+    }
+
+    // Prevent any status change on a subtask if its parent task is already completed
+    if (data.status && data.status !== task.status && task.parentTaskId) {
+      const [parentTask] = await tx
+        .select({ status: tasks.status })
+        .from(tasks)
+        .where(and(eq(tasks.id, task.parentTaskId), isNull(tasks.deletedAt)));
+
+      if (parentTask?.status === "completed") {
+        throw new AppError(
+          "Cannot change the status of a subtask while its parent task is completed. Reopen the parent task first.",
+          400
+        );
+      }
+    }
+
+    // Block completion if any subtasks are not yet completed
+    if (data.status === "completed" && task.status !== "completed") {
+      const incompleteSubtasks = await tx
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(and(
+          eq(tasks.parentTaskId, id),
+          isNull(tasks.deletedAt),
+          notInArray(tasks.status, ["completed"])
+        ));
+
+      if (incompleteSubtasks.length > 0) {
+        throw new AppError(
+          `Cannot complete this task: ${incompleteSubtasks.length} subtask(s) are not yet completed`,
+          400
+        );
       }
     }
 
@@ -558,13 +607,13 @@ export const updateTaskStatus = async (
     let taskQuery;
     if (user.role === "superadmin") {
       taskQuery = await tx
-        .select({ projectId: tasks.projectId, status: tasks.status })
+        .select({ projectId: tasks.projectId, status: tasks.status, parentTaskId: tasks.parentTaskId })
         .from(tasks)
         .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
     } else {
       if (!user.orgId) throw new AppError("No organization assigned", 403);
       taskQuery = await tx
-        .select({ projectId: tasks.projectId, status: tasks.status })
+        .select({ projectId: tasks.projectId, status: tasks.status, parentTaskId: tasks.parentTaskId })
         .from(tasks)
         .innerJoin(projects, eq(tasks.projectId, projects.id))
         .where(and(eq(tasks.id, id), eq(projects.orgId, user.orgId), isNull(tasks.deletedAt)));
@@ -591,6 +640,40 @@ export const updateTaskStatus = async (
     // Only admins and superadmins can reopen a completed task
     if (task.status === "completed" && user.role === "developer") {
       throw new AppError("Only admins and superadmins can reopen completed tasks", 403);
+    }
+
+    // Prevent any status change on a subtask if its parent task is already completed
+    if (task.parentTaskId) {
+      const [parentTask] = await tx
+        .select({ status: tasks.status })
+        .from(tasks)
+        .where(and(eq(tasks.id, task.parentTaskId), isNull(tasks.deletedAt)));
+
+      if (parentTask?.status === "completed") {
+        throw new AppError(
+          "Cannot change the status of a subtask while its parent task is completed. Reopen the parent task first.",
+          400
+        );
+      }
+    }
+
+    // Block completion if any subtasks are not yet completed
+    if (newStatus === "completed") {
+      const incompleteSubtasks = await tx
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(and(
+          eq(tasks.parentTaskId, id),
+          isNull(tasks.deletedAt),
+          notInArray(tasks.status, ["completed"])
+        ));
+
+      if (incompleteSubtasks.length > 0) {
+        throw new AppError(
+          `Cannot complete this task: ${incompleteSubtasks.length} subtask(s) are not yet completed`,
+          400
+        );
+      }
     }
 
     const completedAt = newStatus === "completed" ? new Date() : null;
