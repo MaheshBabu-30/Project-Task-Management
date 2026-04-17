@@ -13,8 +13,10 @@ process.on("unhandledRejection", (reason) => {
   process.exit(1);
 });
 
-serve({ fetch: app.fetch, port: Number(env.PORT) || 3000, hostname: "0.0.0.0" });
+serve({ fetch: app.fetch, port: Number(env.PORT) || 3000, hostname: "0.0.0.0" }, (info) => {
+  console.log(`Server listening on ${info.hostname}:${info.port}`);
+});
 
-console.log(`Server running on port ${env.PORT}`);
+console.log(`PORT env var is: ${env.PORT}`);
 
 startScheduler();
