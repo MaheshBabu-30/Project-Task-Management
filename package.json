@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "set NODE_TLS_REJECT_UNAUTHORIZED=0&& tsx watch src/server.ts",
+    "dev": "tsx watch src/server.ts",
     "start": "node dist/src/server.js",
     "build": "tsc"
   },
