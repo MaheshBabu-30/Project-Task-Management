@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { tasks, projects, taskAssignees, projectMembers, orgMembers, users } from "../../../drizzle/schema.js";
-import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, type InferSelectModel } from "drizzle-orm";
+import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, sql, type InferSelectModel } from "drizzle-orm";
 import { AppError } from "../../exceptions/AppError.js";
 import { createNotification } from "../notifications/notification.service.js";
 import { catchError } from "../../utils/logger.js";
@@ -216,13 +216,14 @@ export const getTasks = async (
 ) => {
   const { id, orgId, status, priority, search, projectId, parentTaskId, assignedUserId, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
 
-  const filters = [showDeleted ? isNotNull(tasks.deletedAt) : isNull(tasks.deletedAt)];
+  // baseFilters holds everything *except* the status filter so stats always show all buckets
+  const baseFilters = [showDeleted ? isNotNull(tasks.deletedAt) : isNull(tasks.deletedAt)];
 
   // By default return only root tasks; if parentTaskId provided, return subtasks of that task
   if (parentTaskId) {
-    filters.push(eq(tasks.parentTaskId, parentTaskId));
+    baseFilters.push(eq(tasks.parentTaskId, parentTaskId));
   } else if (!id) {
-    filters.push(isNull(tasks.parentTaskId));
+    baseFilters.push(isNull(tasks.parentTaskId));
   }
 
   // 1. Scoping by Org (via Project Join)
@@ -233,7 +234,7 @@ export const getTasks = async (
         .select({ id: projects.id })
         .from(projects)
         .where(eq(projects.orgId, orgId));
-      filters.push(inArray(tasks.projectId, orgProjectIds));
+      baseFilters.push(inArray(tasks.projectId, orgProjectIds));
     }
   } else {
     if (!user.orgId) throw new AppError("No organization assigned", 403);
@@ -243,7 +244,7 @@ export const getTasks = async (
       .from(projects)
       .where(eq(projects.orgId, user.orgId));
 
-    filters.push(inArray(tasks.projectId, orgProjectIds));
+    baseFilters.push(inArray(tasks.projectId, orgProjectIds));
   }
 
   // 2. Role-based Scoping
@@ -252,26 +253,26 @@ export const getTasks = async (
       .select({ taskId: taskAssignees.taskId })
       .from(taskAssignees)
       .where(eq(taskAssignees.userId, user.userId));
-    
-    filters.push(inArray(tasks.id, userTaskIds));
+
+    baseFilters.push(inArray(tasks.id, userTaskIds));
   }
 
-  // 3. Optional Filters
-  if (id) filters.push(eq(tasks.id, id));
-  if (status) filters.push(eq(tasks.status, status));
-  if (priority) filters.push(eq(tasks.priority, priority));
-  if (projectId) filters.push(eq(tasks.projectId, projectId));
-  if (search) filters.push(ilike(tasks.title, `%${search}%`));
-  
+  // 3. Optional Filters (status kept separate so stats can run without it)
+  if (id) baseFilters.push(eq(tasks.id, id));
+  if (priority) baseFilters.push(eq(tasks.priority, priority));
+  if (projectId) baseFilters.push(eq(tasks.projectId, projectId));
+  if (search) baseFilters.push(ilike(tasks.title, `%${search}%`));
+
   if (assignedUserId) {
     const specificUserTaskIds = db
       .select({ taskId: taskAssignees.taskId })
       .from(taskAssignees)
       .where(eq(taskAssignees.userId, assignedUserId));
-    filters.push(inArray(tasks.id, specificUserTaskIds));
+    baseFilters.push(inArray(tasks.id, specificUserTaskIds));
   }
 
-  const whereCondition = and(...filters);
+  const statsWhereCondition = and(...baseFilters);
+  const whereCondition = status ? and(...baseFilters, eq(tasks.status, status)) : statsWhereCondition;
   const offset = (page - 1) * limit;
 
   // 4. Sorting logic
@@ -342,12 +343,36 @@ export const getTasks = async (
     creator: task.createdBy ? (creatorsMap[task.createdBy] ?? null) : null,
   }));
 
-  const countResult = await db
-    .select({ total: count() })
-    .from(tasks)
-    .where(whereCondition);
+  // Run count + per-status stats in parallel (stats use statsWhereCondition — no status filter)
+  const [countResult, statsResult] = await Promise.all([
+    db.select({ total: count() }).from(tasks).where(whereCondition),
+    db
+      .select({
+        total: count(),
+        todo: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'to_do' AND NOT (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE) THEN 1 END)`.mapWith(Number),
+        inProgress: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'in_progress' AND NOT (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE) THEN 1 END)`.mapWith(Number),
+        onHold: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'on_hold' THEN 1 END)`.mapWith(Number),
+        overdue: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'overdue' OR (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE AND ${tasks.status} NOT IN ('completed', 'on_hold', 'overdue')) THEN 1 END)`.mapWith(Number),
+        completed: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' THEN 1 END)`.mapWith(Number),
+      })
+      .from(tasks)
+      .where(statsWhereCondition),
+  ]);
 
-  return { data: dataWithAssignees, totalRecords: countResult[0]?.total ?? 0 };
+  const s = statsResult[0] ?? { total: 0, todo: 0, inProgress: 0, onHold: 0, overdue: 0, completed: 0 };
+
+  return {
+    data: dataWithAssignees,
+    totalRecords: countResult[0]?.total ?? 0,
+    stats: {
+      total: s.total,
+      todo: s.todo,
+      inProgress: s.inProgress,
+      onHold: s.onHold,
+      overdue: s.overdue,
+      completed: s.completed,
+    },
+  };
 };
 
 // ─── Get Task By ID ───────────────────────────────────────────────────────────

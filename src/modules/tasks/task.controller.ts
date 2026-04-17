@@ -57,7 +57,7 @@ export const getTasksList = async (c: Context) => {
     showDeleted: rawQuery.showDeleted === "true",
   });
 
-  const { data, totalRecords } = await getTasks(query, user);
+  const { data, totalRecords, stats } = await getTasks(query, user);
 
   const pagination = buildPagination({
     page: query.page as number,
@@ -67,6 +67,7 @@ export const getTasksList = async (c: Context) => {
 
   return successResponse(c, {
     tasks: data,
+    stats,
     pagination,
   });
 };

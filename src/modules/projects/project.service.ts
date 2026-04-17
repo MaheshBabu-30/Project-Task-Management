@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { projects, tasks, projectMembers, orgMembers, organizations, users, taskAssignees } from "../../../drizzle/schema.js";
-import { eq, ilike, and, asc, desc, isNull, isNotNull, inArray, notInArray, count } from "drizzle-orm";
+import { eq, ilike, and, asc, desc, isNull, isNotNull, inArray, notInArray, count, sql } from "drizzle-orm";
 import { AppError } from "../../exceptions/AppError.js";
 import type { UserSummary } from "../../types/common.types.js";
 
@@ -234,26 +234,72 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
     if (!membership) throw new AppError("Access denied. You are not a member of this project.", 403);
   }
 
-  // 3. Fetch members
-  const members = await db
-    .select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      avatarUrl: users.avatarUrl,
-    })
-    .from(projectMembers)
-    .innerJoin(users, eq(projectMembers.userId, users.id))
-    .where(eq(projectMembers.projectId, id));
+  // 3. Fetch members, creator, task stats, and per-member task counts in parallel
+  const [members, creatorResult, taskStatsResult, memberTaskCounts] = await Promise.all([
+    db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        avatarUrl: users.avatarUrl,
+      })
+      .from(projectMembers)
+      .innerJoin(users, eq(projectMembers.userId, users.id))
+      .where(eq(projectMembers.projectId, id)),
 
-  const [creator] = project.createdBy
-    ? await db
-        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
-        .from(users)
-        .where(eq(users.id, project.createdBy))
-    : [null];
+    project.createdBy
+      ? db
+          .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+          .from(users)
+          .where(eq(users.id, project.createdBy))
+      : Promise.resolve([] as { id: string; name: string; email: string; avatarUrl: string | null }[]),
 
-  return { ...project, members, creator: creator ?? null };
+    db
+      .select({
+        total: count(),
+        pending: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'to_do' AND NOT (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE) THEN 1 END)`.mapWith(Number),
+        inProgress: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'in_progress' AND NOT (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE) THEN 1 END)`.mapWith(Number),
+        onHold: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'on_hold' THEN 1 END)`.mapWith(Number),
+        overdue: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'overdue' OR (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE AND ${tasks.status} NOT IN ('completed', 'on_hold', 'overdue')) THEN 1 END)`.mapWith(Number),
+        completed: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' THEN 1 END)`.mapWith(Number),
+      })
+      .from(tasks)
+      .where(and(eq(tasks.projectId, id), isNull(tasks.deletedAt))),
+
+    db
+      .select({
+        userId: taskAssignees.userId,
+        totalAssigned: count(),
+      })
+      .from(taskAssignees)
+      .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id))
+      .where(and(eq(tasks.projectId, id), isNull(tasks.deletedAt)))
+      .groupBy(taskAssignees.userId),
+  ]);
+
+  const creator = creatorResult[0] ?? null;
+
+  const memberTaskCountMap = new Map(memberTaskCounts.map((m) => [m.userId, m.totalAssigned]));
+  const membersWithTaskCounts = members.map((member) => ({
+    ...member,
+    totalTasksAssigned: memberTaskCountMap.get(member.id) ?? 0,
+  }));
+
+  const stats = taskStatsResult[0] ?? { total: 0, pending: 0, inProgress: 0, onHold: 0, overdue: 0, completed: 0 };
+
+  return {
+    ...project,
+    members: membersWithTaskCounts,
+    creator,
+    taskStats: {
+      total: stats.total,
+      pending: stats.pending,
+      inProgress: stats.inProgress,
+      onHold: stats.onHold,
+      overdue: stats.overdue,
+      completed: stats.completed,
+    },
+  };
 };
 
 // ─── Update Project ──────────────────────────────────────────────────────────
