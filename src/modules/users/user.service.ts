@@ -1,7 +1,7 @@
 import bcrypt from "bcrypt";
 import { db } from "../../config/db.js";
 import { users, orgMembers, projectMembers, taskAssignees, tasks } from "../../../drizzle/schema.js";
-import { eq, ilike, and, asc, desc, isNull, inArray, notInArray, count } from "drizzle-orm";
+import { eq, ilike, and, asc, desc, isNull, inArray, notInArray, count, sql } from "drizzle-orm";
 import { AppError } from "../../utils/errors.js";
 
 interface UserQuery {
@@ -141,7 +141,27 @@ export const getUsers = async (
         phone: users.phone,
         avatarUrl: users.avatarUrl,
         lastLoginAt: users.lastLoginAt,
-        createdAt: users.createdAt
+        createdAt: users.createdAt,
+        projectCount: sql<number>`(
+          SELECT COUNT(*) FROM project_members pm
+          INNER JOIN projects p ON p.id = pm.project_id
+          WHERE pm.user_id = ${users.id} AND p.deleted_at IS NULL
+        )`.mapWith(Number),
+        taskCount: sql<number>`(
+          SELECT COUNT(*) FROM task_assignees ta
+          INNER JOIN tasks t ON t.id = ta.task_id
+          WHERE ta.user_id = ${users.id} AND t.deleted_at IS NULL
+        )`.mapWith(Number),
+        inProgressCount: sql<number>`(
+          SELECT COUNT(*) FROM task_assignees ta
+          INNER JOIN tasks t ON t.id = ta.task_id
+          WHERE ta.user_id = ${users.id} AND t.status = 'in_progress' AND t.deleted_at IS NULL
+        )`.mapWith(Number),
+        toDoCount: sql<number>`(
+          SELECT COUNT(*) FROM task_assignees ta
+          INNER JOIN tasks t ON t.id = ta.task_id
+          WHERE ta.user_id = ${users.id} AND t.status = 'to_do' AND t.deleted_at IS NULL
+        )`.mapWith(Number),
       })
       .from(users)
       .where(whereCondition)
@@ -196,7 +216,27 @@ export const getUsers = async (
       phone: users.phone,
       avatarUrl: users.avatarUrl,
       lastLoginAt: users.lastLoginAt,
-      createdAt: users.createdAt
+      createdAt: users.createdAt,
+      projectCount: sql<number>`(
+        SELECT COUNT(*) FROM project_members pm
+        INNER JOIN projects p ON p.id = pm.project_id
+        WHERE pm.user_id = ${users.id} AND p.deleted_at IS NULL
+      )`.mapWith(Number),
+      taskCount: sql<number>`(
+        SELECT COUNT(*) FROM task_assignees ta
+        INNER JOIN tasks t ON t.id = ta.task_id
+        WHERE ta.user_id = ${users.id} AND t.deleted_at IS NULL
+      )`.mapWith(Number),
+      inProgressCount: sql<number>`(
+        SELECT COUNT(*) FROM task_assignees ta
+        INNER JOIN tasks t ON t.id = ta.task_id
+        WHERE ta.user_id = ${users.id} AND t.status = 'in_progress' AND t.deleted_at IS NULL
+      )`.mapWith(Number),
+      toDoCount: sql<number>`(
+        SELECT COUNT(*) FROM task_assignees ta
+        INNER JOIN tasks t ON t.id = ta.task_id
+        WHERE ta.user_id = ${users.id} AND t.status = 'to_do' AND t.deleted_at IS NULL
+      )`.mapWith(Number),
     })
     .from(users)
     .where(whereCondition)
