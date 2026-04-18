@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { listComments, addComment, editComment, removeComment } from "./comment.controller.js";
 import { authMiddleware } from "../../middlewares/auth.middleware.js";
+import type { AppEnv } from "../../types/hono.types.js";
 
-const router = new Hono({ strict: false });
+const router = new Hono<AppEnv>({ strict: false });
 
 router.use(authMiddleware);
 

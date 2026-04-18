@@ -1,18 +1,18 @@
 import { db } from "../../config/db.js";
 import { tasks, projects, taskAssignees, projectMembers, orgMembers, users } from "../../db/schema.js";
 import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, sql, type InferSelectModel } from "drizzle-orm";
-import { BadRequestException, UnauthorizedException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
+import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";
 import { createNotification } from "../notifications/notification.service.js";
 import { catchError } from "../../utils/logger.js";
 import type { TaskStatus, TaskPriority } from "../../types/task.types.js";
-import type { UserSummary } from "../../types/common.types.js";
+import type { UserSummary, PaginationQuery } from "../../types/common.types.js";
 import { ALLOWED_STATUS_TRANSITIONS } from "../../constants/task.constants.js";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type TaskRecord = InferSelectModel<typeof tasks>;
 
-interface TaskQuery {
+interface TaskQuery extends PaginationQuery {
   id?: string;
   orgId?: string;
   status?: TaskStatus;
@@ -21,10 +21,6 @@ interface TaskQuery {
   projectId?: string;
   parentTaskId?: string;
   assignedUserId?: string;
-  page?: number;
-  limit?: number;
-  sortBy?: string;
-  order?: string;
   showDeleted?: boolean;
 }
 

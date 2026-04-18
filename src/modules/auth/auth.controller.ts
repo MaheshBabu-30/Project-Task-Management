@@ -1,11 +1,11 @@
 import { parse } from "valibot";
-import type { Context } from "hono";
+import type { AppContext } from "../../types/hono.types.js";
 import { loginSchema, requestOtpSchema, verifyOtpSchema } from "./auth.schema.js";
 import { loginUser, refreshSession, requestOtp, verifyOtp, logoutUser } from "./auth.service.js";
 import { successResponse } from "../../utils/response.js";
 import { BadRequestException } from "../../exceptions/index.js";
 
-export const logoutUserAccount = async (c: Context) => {
+export const logoutUserAccount = async (c: AppContext) => {
   const user = c.get("user");
   const { refreshToken } = await c.req.json();
 
@@ -18,7 +18,7 @@ export const logoutUserAccount = async (c: Context) => {
   return successResponse(c, { message: "Successfully logged out" });
 };
 
-export const loginUserAccount = async (c: Context) => {
+export const loginUserAccount = async (c: AppContext) => {
   const body = await c.req.json();
 
   const data = parse(loginSchema, body);
@@ -29,7 +29,7 @@ export const loginUserAccount = async (c: Context) => {
 };
 
 
-export const refreshUserSession = async (c: Context) => {
+export const refreshUserSession = async (c: AppContext) => {
   const { refreshToken } = await c.req.json();
   
   if (!refreshToken) {
@@ -41,7 +41,7 @@ export const refreshUserSession = async (c: Context) => {
   return successResponse(c, result);
 };
 
-export const requestLoginOtp = async (c: Context) => {
+export const requestLoginOtp = async (c: AppContext) => {
   const body = await c.req.json();
   const data = parse(requestOtpSchema, body);
   
@@ -49,7 +49,7 @@ export const requestLoginOtp = async (c: Context) => {
   return successResponse(c, result);
 };
 
-export const verifyLoginOtp = async (c: Context) => {
+export const verifyLoginOtp = async (c: AppContext) => {
   const body = await c.req.json();
   const data = parse(verifyOtpSchema, body);
   

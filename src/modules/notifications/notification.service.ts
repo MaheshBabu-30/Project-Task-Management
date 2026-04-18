@@ -3,6 +3,12 @@ import { notifications } from "../../db/schema.js";
 import { eq, and, isNull, asc, desc, count } from "drizzle-orm";
 import { NotFoundException } from "../../exceptions/index.js";
 import type { NotificationType } from "../../constants/notification.constants.js";
+import type { PaginationQuery } from "../../types/common.types.js";
+
+interface NotificationQuery extends PaginationQuery {
+  unread?: boolean;
+  type?: string;
+}
 
 // ─── Create Notification (internal helper) ────────────────────────────────────
 
@@ -22,7 +28,7 @@ export const createNotification = async (data: {
 
 export const getNotifications = async (
   userId: string,
-  query: { page?: number; limit?: number; unread?: boolean; type?: string; order?: string }
+  query: NotificationQuery
 ) => {
   const { page = 1, limit = 20, unread, type, order = "desc" } = query;
   const offset = (page - 1) * limit;

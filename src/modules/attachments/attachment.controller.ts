@@ -1,5 +1,5 @@
 import { parse } from "valibot";
-import type { Context } from "hono";
+import type { AppContext } from "../../types/hono.types.js";
 import { createAttachmentSchema, attachmentQuerySchema } from "./attachment.schema.js";
 import { uuidSchema } from "../../helpers/validators.js";
 import { getAttachments, linkAttachment, removeAttachment, getAttachmentById } from "./attachment.service.js";
@@ -7,7 +7,7 @@ import { generatePresignedDownloadUrl } from "../uploads/upload.service.js";
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../helpers/pagination.js";
 
-export const listAttachments = async (c: Context) => {
+export const listAttachments = async (c: AppContext) => {
   const user = c.get("user");
   const taskId = parse(uuidSchema("Task ID"), c.req.param("taskId"));
   const rawQuery = c.req.query();
@@ -29,7 +29,7 @@ export const listAttachments = async (c: Context) => {
   return successResponse(c, { attachments: data, pagination });
 };
 
-export const addAttachment = async (c: Context) => {
+export const addAttachment = async (c: AppContext) => {
   const user = c.get("user");
   const taskId = parse(uuidSchema("Task ID"), c.req.param("taskId"));
   const body = await c.req.json();
@@ -39,7 +39,7 @@ export const addAttachment = async (c: Context) => {
   return successResponse(c, attachment, 201);
 };
 
-export const deleteAttachment = async (c: Context) => {
+export const deleteAttachment = async (c: AppContext) => {
   const user = c.get("user");
   const attachmentId = parse(uuidSchema("Attachment ID"), c.req.param("attachmentId"));
 
@@ -47,7 +47,7 @@ export const deleteAttachment = async (c: Context) => {
   return successResponse(c, result);
 };
 
-export const getAttachmentDownloadUrl = async (c: Context) => {
+export const getAttachmentDownloadUrl = async (c: AppContext) => {
   const user = c.get("user");
   const taskId = parse(uuidSchema("Task ID"), c.req.param("taskId"));
   const attachmentId = parse(uuidSchema("Attachment ID"), c.req.param("attachmentId"));

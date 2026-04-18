@@ -1,5 +1,5 @@
 import { parse } from "valibot";
-import type { Context } from "hono";
+import type { AppContext } from "../../types/hono.types.js";
 import { createOrgSchema, addMemberSchema, orgQuerySchema } from "./org.schema.js";
 import { buildPagination } from "../../helpers/pagination.js";
 import { uuidSchema } from "../../helpers/validators.js";
@@ -19,12 +19,12 @@ import { createAuditLog } from "../audit-logs/audit-log.service.js";
 import { createNotification } from "../notifications/notification.service.js";
 import { catchError } from "../../utils/logger.js";
 
-const getIp = (c: Context) =>
+const getIp = (c: AppContext) =>
   c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? undefined;
 
 // ─── Create Organization (SUPERADMIN only) ────────────────────────────────────
 
-export const createOrg = async (c: Context) => {
+export const createOrg = async (c: AppContext) => {
   const user = c.get("user");
   const body = await c.req.json();
   const data = parse(createOrgSchema, body);
@@ -46,7 +46,7 @@ export const createOrg = async (c: Context) => {
 
 // ─── List All Organizations (SUPERADMIN only) ─────────────────────────────────
 
-export const listOrgs = async (c: Context) => {
+export const listOrgs = async (c: AppContext) => {
   const rawQuery = c.req.query();
 
   const query = parse(orgQuerySchema, {
@@ -68,7 +68,7 @@ export const listOrgs = async (c: Context) => {
 
 // ─── Get Organization Details (SUPERADMIN + ADMIN own org) ───────────────────
 
-export const getOrgDetails = async (c: Context) => {
+export const getOrgDetails = async (c: AppContext) => {
   const user = c.get("user");
   const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
 
@@ -83,7 +83,7 @@ export const getOrgDetails = async (c: Context) => {
 
 // ─── Assign Admin to Organization (SUPERADMIN only) ───────────────────────────
 
-export const assignAdmin = async (c: Context) => {
+export const assignAdmin = async (c: AppContext) => {
   const user = c.get("user");
   const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
   const body = await c.req.json();
@@ -106,7 +106,7 @@ export const assignAdmin = async (c: Context) => {
 
 // ─── Add Developer to Organization (ADMIN only) ───────────────────────────────
 
-export const addDeveloper = async (c: Context) => {
+export const addDeveloper = async (c: AppContext) => {
   const user = c.get("user");
   const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
 
@@ -117,7 +117,8 @@ export const addDeveloper = async (c: Context) => {
   const body = await c.req.json();
   const { userId } = parse(addMemberSchema, body);
 
-  const effectiveOrgId = user.role === "superadmin" ? orgId : user.orgId;
+  // user.orgId is guaranteed non-null here: the guard above throws if role !== superadmin && !orgId
+  const effectiveOrgId = user.role === "superadmin" ? orgId : user.orgId!;
   const member = await addDeveloperToOrg(orgId, userId, effectiveOrgId);
 
   createAuditLog({
@@ -135,7 +136,7 @@ export const addDeveloper = async (c: Context) => {
 
 // ─── Soft Delete Organization (SUPERADMIN only) ───────────────────────────────
 
-export const deleteOrg = async (c: Context) => {
+export const deleteOrg = async (c: AppContext) => {
   const user = c.get("user");
   const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
   const result = await softDeleteOrg(orgId, user.userId);
@@ -154,7 +155,7 @@ export const deleteOrg = async (c: Context) => {
 
 // ─── Remove Member from Organization (SUPERADMIN + ADMIN own org) ────────────
 
-export const removeMember = async (c: Context) => {
+export const removeMember = async (c: AppContext) => {
   const user = c.get("user");
   const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
   const userId = parse(uuidSchema("User ID"), c.req.param("userId"));

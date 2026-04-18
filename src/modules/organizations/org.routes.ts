@@ -10,8 +10,9 @@ import {
   removeMember,
   deleteOrg,
 } from "./org.controller.js";
+import type { AppEnv } from "../../types/hono.types.js";
 
-const router = new Hono();
+const router = new Hono<AppEnv>();
 
 router.use(authMiddleware);
 

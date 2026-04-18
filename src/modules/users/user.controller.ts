@@ -1,18 +1,19 @@
 import { parse } from "valibot";
-import type { Context } from "hono";
+import type { AppContext } from "../../types/hono.types.js";
 import { userQuerySchema, updateUserSchema, toggleUserStatusSchema, createUserSchema } from "./user.schema.js";
 import { uuidSchema } from "../../helpers/validators.js";
 import { getUsers, updateUserStatus, updateUserProfile, getUserById, createUser } from "./user.service.js";
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../helpers/pagination.js";
 import { createAuditLog } from "../audit-logs/audit-log.service.js";
+import { catchError } from "../../utils/logger.js";
 
-const getIp = (c: Context) =>
+const getIp = (c: AppContext) =>
   c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? undefined;
 
 // ─── Create User (SUPERADMIN creates admin/developer, ADMIN creates developer) ─
 
-export const createNewUser = async (c: Context) => {
+export const createNewUser = async (c: AppContext) => {
   const requester = c.get("user");
   const body = await c.req.json();
   const data = parse(createUserSchema, body);
@@ -27,14 +28,14 @@ export const createNewUser = async (c: Context) => {
     entityId: result.id,
     after: result,
     ipAddress: getIp(c),
-  }).catch(console.error);
+  }).catch(catchError("user.controller:auditLog"));
 
   return successResponse(c, result, 201);
 };
 
 // ─── List Users (Scoped) ──────────────────────────────────────────────────────
 
-export const getUsersList = async (c: Context) => {
+export const getUsersList = async (c: AppContext) => {
   const user = c.get("user");
   const rawQuery = c.req.query();
 
@@ -63,7 +64,7 @@ export const getUsersList = async (c: Context) => {
 
 // ─── Toggle User Status (ADMIN only) ──────────────────────────────────────────
 
-export const toggleUserStatus = async (c: Context) => {
+export const toggleUserStatus = async (c: AppContext) => {
   const admin = c.get("user");
   const id = parse(uuidSchema("User ID"), c.req.param("id"));
   const body = await c.req.json();
@@ -78,14 +79,14 @@ export const toggleUserStatus = async (c: Context) => {
     entityId: id,
     after: { status },
     ipAddress: getIp(c),
-  }).catch(console.error);
+  }).catch(catchError("user.controller:auditLog"));
 
   return successResponse(c, updated);
 };
 
 // ─── Get My Profile ───────────────────────────────────────────────────────────
 
-export const getMe = async (c: Context) => {
+export const getMe = async (c: AppContext) => {
   const user = c.get("user");
   const profile = await getUserById(user.userId);
   return successResponse(c, profile);
@@ -93,7 +94,7 @@ export const getMe = async (c: Context) => {
 
 // ─── Update My Profile ────────────────────────────────────────────────────────
 
-export const updateMe = async (c: Context) => {
+export const updateMe = async (c: AppContext) => {
   const user = c.get("user");
   const body = await c.req.json();
   const data = parse(updateUserSchema, body);
@@ -104,7 +105,7 @@ export const updateMe = async (c: Context) => {
 
 // ─── Get User Details ─────────────────────────────────────────────────────────
 
-export const getUserDetails = async (c: Context) => {
+export const getUserDetails = async (c: AppContext) => {
   const currentUser = c.get("user");
   const id = parse(uuidSchema("User ID"), c.req.param("id"));
 

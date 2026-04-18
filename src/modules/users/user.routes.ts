@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import { getUsersList, toggleUserStatus, getMe, updateMe, getUserDetails, createNewUser } from "./user.controller.js";
 import { authMiddleware } from "../../middlewares/auth.middleware.js";
 import { roleMiddleware } from "../../middlewares/role.middleware.js";
+import type { AppEnv } from "../../types/hono.types.js";
 
-const router = new Hono();
+const router = new Hono<AppEnv>();
 
 router.use(authMiddleware);
 

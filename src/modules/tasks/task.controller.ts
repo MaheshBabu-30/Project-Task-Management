@@ -1,5 +1,5 @@
 import { parse } from "valibot";
-import type { Context } from "hono";
+import type { AppContext } from "../../types/hono.types.js";
 import { createTaskSchema, updateTaskSchema, taskQuerySchema, updateTaskStatusSchema } from "./task.schema.js";
 import { uuidSchema } from "../../helpers/validators.js";
 import {
@@ -15,12 +15,12 @@ import { buildPagination } from "../../helpers/pagination.js";
 import { createAuditLog } from "../audit-logs/audit-log.service.js";
 import { catchError } from "../../utils/logger.js";
 
-const getIp = (c: Context) =>
+const getIp = (c: AppContext) =>
   c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? undefined;
 
 // ─── Create Task (ADMIN only) ───────────────────────────────────────────────
 
-export const createNewTask = async (c: Context) => {
+export const createNewTask = async (c: AppContext) => {
   const user = c.get("user");
   const body = await c.req.json();
   const data = parse(createTaskSchema, body);
@@ -46,7 +46,7 @@ export const createNewTask = async (c: Context) => {
 
 // ─── List Tasks (Scoped) ──────────────────────────────────────────────────────
 
-export const getTasksList = async (c: Context) => {
+export const getTasksList = async (c: AppContext) => {
   const user = c.get("user");
   const rawQuery = c.req.query();
 
@@ -74,7 +74,7 @@ export const getTasksList = async (c: Context) => {
 
 // ─── Get Task Details ─────────────────────────────────────────────────────────
 
-export const getTaskDetails = async (c: Context) => {
+export const getTaskDetails = async (c: AppContext) => {
   const user = c.get("user");
   const id = parse(uuidSchema("Task ID"), c.req.param("id"));
 
@@ -86,7 +86,7 @@ export const getTaskDetails = async (c: Context) => {
 // admin/superadmin: can update all fields
 // developer: can only update status
 
-export const updateTaskDetails = async (c: Context) => {
+export const updateTaskDetails = async (c: AppContext) => {
   const user = c.get("user");
   const id = parse(uuidSchema("Task ID"), c.req.param("id"));
   const body = await c.req.json();
@@ -129,7 +129,7 @@ export const updateTaskDetails = async (c: Context) => {
 
 // ─── Soft Delete Task (ADMIN only) ──────────────────────────────────────────
 
-export const deleteTaskRecord = async (c: Context) => {
+export const deleteTaskRecord = async (c: AppContext) => {
   const user = c.get("user");
   const id = parse(uuidSchema("Task ID"), c.req.param("id"));
   const result = await softDeleteTask(id, user.orgId);

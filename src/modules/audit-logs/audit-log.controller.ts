@@ -1,11 +1,11 @@
 import { parse } from "valibot";
-import type { Context } from "hono";
+import type { AppContext } from "../../types/hono.types.js";
 import { auditLogQuerySchema } from "./audit-log.schema.js";
 import { getAuditLogs } from "./audit-log.service.js";
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../helpers/pagination.js";
 
-export const listAuditLogs = async (c: Context) => {
+export const listAuditLogs = async (c: AppContext) => {
   const user = c.get("user");
   const rawQuery = c.req.query();
 

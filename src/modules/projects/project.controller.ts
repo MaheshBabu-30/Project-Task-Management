@@ -1,5 +1,5 @@
 import { parse } from "valibot";
-import type { Context } from "hono";
+import type { AppContext } from "../../types/hono.types.js";
 import {
   createProjectSchema,
   updateProjectSchema,
@@ -18,12 +18,12 @@ import { buildPagination } from "../../helpers/pagination.js";
 import { createAuditLog } from "../audit-logs/audit-log.service.js";
 import { catchError } from "../../utils/logger.js";
 
-const getIp = (c: Context) =>
+const getIp = (c: AppContext) =>
   c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? undefined;
 
 // ─── Create Project (ADMIN only) ──────────────────────────────────────────────
 
-export const createNewProject = async (c: Context) => {
+export const createNewProject = async (c: AppContext) => {
   const user = c.get("user");
   const body = await c.req.json();
   const data = parse(createProjectSchema, body);
@@ -82,7 +82,7 @@ export const createNewProject = async (c: Context) => {
 
 // ─── List Projects (Scoped) ───────────────────────────────────────────────────
 
-export const getProjectsList = async (c: Context) => {
+export const getProjectsList = async (c: AppContext) => {
   const user = c.get("user");
   const rawQuery = c.req.query();
 
@@ -109,7 +109,7 @@ export const getProjectsList = async (c: Context) => {
 
 // ─── Get Project Details ───────────────────────────────────────────────────────
 
-export const getProjectDetails = async (c: Context) => {
+export const getProjectDetails = async (c: AppContext) => {
   const user = c.get("user");
   const id = parse(uuidSchema("Project ID"), c.req.param("id"));
 
@@ -119,7 +119,7 @@ export const getProjectDetails = async (c: Context) => {
 
 // ─── Update Project (ADMIN only) ──────────────────────────────────────────────
 
-export const updateProjectDetails = async (c: Context) => {
+export const updateProjectDetails = async (c: AppContext) => {
   const user = c.get("user");
   const id = parse(uuidSchema("Project ID"), c.req.param("id"));
   const body = await c.req.json();
@@ -142,7 +142,7 @@ export const updateProjectDetails = async (c: Context) => {
 
 // ─── Soft Delete Project (ADMIN only) ─────────────────────────────────────────
 
-export const deleteProjectRecord = async (c: Context) => {
+export const deleteProjectRecord = async (c: AppContext) => {
   const user = c.get("user");
   const id = parse(uuidSchema("Project ID"), c.req.param("id"));
   const result = await deleteProject(id, user.orgId);

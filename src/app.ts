@@ -13,8 +13,9 @@ import attachmentRoutes from "./modules/attachments/attachment.routes.js";
 import notificationRoutes from "./modules/notifications/notification.routes.js";
 import auditLogRoutes from "./modules/audit-logs/audit-log.routes.js";
 import { env } from "./config/env.js";
+import type { AppEnv } from "./types/hono.types.js";
 
-const app = new Hono();
+const app = new Hono<AppEnv>();
 
 app.use("*", secureHeaders());
 

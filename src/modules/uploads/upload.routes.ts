@@ -1,8 +1,9 @@
 import { Hono } from "hono";
 import { getUploadUrl } from "./upload.controller.js";
 import { authMiddleware } from "../../middlewares/auth.middleware.js";
+import type { AppEnv } from "../../types/hono.types.js";
 
-const router = new Hono();
+const router = new Hono<AppEnv>();
 
 router.use(authMiddleware);
 

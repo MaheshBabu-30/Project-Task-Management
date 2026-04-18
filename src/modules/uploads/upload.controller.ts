@@ -1,12 +1,12 @@
 import { parse } from "valibot";
-import type { Context } from "hono";
+import type { AppContext } from "../../types/hono.types.js";
 import { getPresignedUrlSchema } from "./upload.schema.js";
 import { generatePresignedUploadUrl } from "./upload.service.js";
 import { successResponse } from "../../utils/response.js";
 import { ForbiddenException } from "../../exceptions/index.js";
 import { NO_ORG_ASSIGNED } from "../../constants/appMessages.js";
 
-export const getUploadUrl = async (c: Context) => {
+export const getUploadUrl = async (c: AppContext) => {
   const user = c.get("user");
   const body = await c.req.json();
   const data = parse(getPresignedUrlSchema, body);

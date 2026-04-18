@@ -1,6 +1,16 @@
 import { db } from "../../config/db.js";
 import { auditLogs, users, organizations } from "../../db/schema.js";
 import { eq, and, gte, lte, ilike, asc, desc, count, inArray, type SQL } from "drizzle-orm";
+import type { PaginationQuery } from "../../types/common.types.js";
+
+interface AuditLogQuery extends PaginationQuery {
+  orgId?: string;
+  actorId?: string;
+  entityType?: string;
+  action?: string;
+  from?: string;
+  to?: string;
+}
 
 // ─── Create Audit Log (internal helper) ──────────────────────────────────────
 
@@ -24,18 +34,7 @@ export const createAuditLog = async (data: {
 // ─── Get Audit Logs ───────────────────────────────────────────────────────────
 
 export const getAuditLogs = async (
-  query: {
-    page?: number;
-    limit?: number;
-    orgId?: string;
-    actorId?: string;
-    entityType?: string;
-    action?: string;
-    from?: string;
-    to?: string;
-    sortBy?: string;
-    order?: string;
-  },
+  query: AuditLogQuery,
   scopedOrgId?: string  // set for admin — restricts to their org
 ) => {
   const { page = 1, limit = 20, orgId, actorId, entityType, action, from, to, sortBy = "createdAt", order = "desc" } = query;

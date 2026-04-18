@@ -1,9 +1,9 @@
 import { db } from "../../config/db.js";
 import { projects, tasks, projectMembers, orgMembers, organizations, users, taskAssignees } from "../../db/schema.js";
 import { eq, ilike, and, asc, desc, isNull, isNotNull, inArray, notInArray, count, sql } from "drizzle-orm";
-import { BadRequestException, UnauthorizedException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
+import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";
-import type { UserSummary } from "../../types/common.types.js";
+import type { UserSummary, PaginationQuery } from "../../types/common.types.js";
 
 interface UpdateProjectData {
   title?: string;
@@ -13,16 +13,12 @@ interface UpdateProjectData {
   assignedUserIds?: string[];
 }
 
-interface ProjectQuery {
+interface ProjectQuery extends PaginationQuery {
   id?: string;
   orgId?: string;
   title?: string;
   createdBy?: string;
   status?: "active" | "on_hold" | "completed";
-  page?: number;
-  limit?: number;
-  sortBy?: string;
-  order?: string;
   showDeleted?: boolean;
 }
 

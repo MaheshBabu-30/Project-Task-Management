@@ -3,7 +3,12 @@ import { organizations, orgMembers, users, projects, projectMembers, taskAssigne
 import { eq, and, isNull, inArray, ilike, asc, desc, count } from "drizzle-orm";
 import { BadRequestException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
 import { ORG_NOT_FOUND, ADMIN_ROLE_REQUIRED, ADMIN_ALREADY_IN_ORG, SLUG_TAKEN, USER_NOT_FOUND } from "../../constants/appMessages.js";
-import type { UserSummary } from "../../types/common.types.js";
+import type { UserSummary, PaginationQuery } from "../../types/common.types.js";
+
+interface OrgQuery extends PaginationQuery {
+  name?: string;
+  slug?: string;
+}
 
 // ─── Create Organization ──────────────────────────────────────────────────────
 
@@ -25,9 +30,7 @@ export const createOrganization = async (data: { name: string; slug: string }) =
 
 // ─── Get All Organizations (SUPERADMIN) ───────────────────────────────────────
 
-export const getAllOrganizations = async (query?: {
-  name?: string; slug?: string; page?: number; limit?: number; sortBy?: string; order?: string;
-}) => {
+export const getAllOrganizations = async (query?: OrgQuery) => {
   const { name, slug, page = 1, limit = 20, sortBy = "createdAt", order = "asc" } = query ?? {};
   const offset = (page - 1) * limit;
 

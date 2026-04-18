@@ -5,9 +5,14 @@ import { ForbiddenException, NotFoundException, InternalServerException } from "
 import { TASK_NOT_FOUND, NO_ORG_ASSIGNED, ACCESS_DENIED, TASK_NOT_ASSIGNED, ATTACHMENT_NOT_FOUND, ATTACHMENT_DELETE_OWN } from "../../constants/appMessages.js";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { s3Client, B2_BUCKET_NAME } from "../../config/s3.js";
-import type { UserSummary } from "../../types/common.types.js";
+import type { UserSummary, PaginationQuery } from "../../types/common.types.js";
 
 type User = { userId: string; role: string; orgId?: string };
+
+interface AttachmentQuery extends PaginationQuery {
+  uploadedBy?: string;
+  mimeType?: string;
+}
 
 // ─── Verify task access ───────────────────────────────────────────────────────
 
@@ -66,7 +71,7 @@ export const getAttachmentById = async (attachmentId: string, taskId: string, us
 export const getAttachments = async (
   taskId: string,
   user: User,
-  query?: { page?: number; limit?: number; uploadedBy?: string; mimeType?: string; sortBy?: string; order?: string }
+  query?: AttachmentQuery
 ) => {
   await verifyTaskAccess(taskId, user);
 

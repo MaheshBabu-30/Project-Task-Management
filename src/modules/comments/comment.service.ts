@@ -5,9 +5,13 @@ import { ForbiddenException, NotFoundException, InternalServerException } from "
 import { TASK_NOT_FOUND, NO_ORG_ASSIGNED, ACCESS_DENIED, TASK_NOT_ASSIGNED, COMMENT_NOT_FOUND, COMMENT_EDIT_OWN, COMMENT_DELETE_OWN } from "../../constants/appMessages.js";
 import { createNotification } from "../notifications/notification.service.js";
 import { catchError } from "../../utils/logger.js";
-import type { UserSummary } from "../../types/common.types.js";
+import type { UserSummary, PaginationQuery } from "../../types/common.types.js";
 
 type User = { userId: string; role: string; orgId?: string };
+
+interface CommentQuery extends PaginationQuery {
+  authorId?: string;
+}
 
 // ─── Verify task access ───────────────────────────────────────────────────────
 
@@ -46,7 +50,7 @@ const verifyTaskAccess = async (taskId: string, user: User) => {
 export const getComments = async (
   taskId: string,
   user: User,
-  query: { page?: number; limit?: number; order?: string; authorId?: string }
+  query: CommentQuery
 ) => {
   await verifyTaskAccess(taskId, user);
 

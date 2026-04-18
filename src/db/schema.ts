@@ -9,7 +9,6 @@ import {
   unique,
   index,
   integer,
-  boolean,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────

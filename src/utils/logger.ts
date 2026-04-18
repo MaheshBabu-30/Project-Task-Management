@@ -22,7 +22,7 @@ const serializeError = (err: unknown): LogEntry["error"] | undefined => {
   return undefined;
 };
 
-const write = (level: LogLevel, message: string, error?: unknown, context?: string) => {
+const write = (level: LogLevel, message: string, error?: unknown, context?: string): void => {
   const entry: LogEntry = {
     level,
     message,

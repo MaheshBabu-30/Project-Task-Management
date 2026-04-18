@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import { loginUserAccount, refreshUserSession, requestLoginOtp, verifyLoginOtp, logoutUserAccount } from "./auth.controller.js";
 import { authMiddleware } from "../../middlewares/auth.middleware.js";
 import { rateLimiter } from "../../middlewares/rate-limit.middleware.js";
+import type { AppEnv } from "../../types/hono.types.js";
 
-const router = new Hono();
+const router = new Hono<AppEnv>();
 
 // 20 attempts per minute per IP for sensitive auth endpoints
 const authRateLimit = rateLimiter({ windowMs: 60_000, max: 20, message: "Too many auth attempts. Please try again in a minute." });

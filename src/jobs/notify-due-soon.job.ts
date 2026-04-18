@@ -2,6 +2,7 @@ import { db } from "../config/db.js";
 import { tasks, taskAssignees } from "../db/schema.js";
 import { and, isNull, eq, inArray, notInArray } from "drizzle-orm";
 import { createNotification } from "../modules/notifications/notification.service.js";
+import { catchError } from "../utils/logger.js";
 
 /**
  * Notifies assignees of tasks that are due within the next 24 hours.
@@ -53,7 +54,7 @@ export const notifyDueSoonTasks = async () => {
       body: `"${title}" is due tomorrow. Make sure to complete it on time.`,
       entityType: "task",
       entityId: assignee.taskId,
-    }).catch(console.error);
+    }).catch(catchError("notify-due-soon:notify"));
   }
 
   return assignees.length;

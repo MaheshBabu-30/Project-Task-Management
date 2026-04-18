@@ -1,12 +1,12 @@
 import { parse } from "valibot";
-import type { Context } from "hono";
+import type { AppContext } from "../../types/hono.types.js";
 import { createCommentSchema, updateCommentSchema, commentQuerySchema } from "./comment.schema.js";
 import { uuidSchema } from "../../helpers/validators.js";
 import { getComments, createComment, updateComment, deleteComment } from "./comment.service.js";
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../helpers/pagination.js";
 
-export const listComments = async (c: Context) => {
+export const listComments = async (c: AppContext) => {
   const user = c.get("user");
   const taskId = parse(uuidSchema("Task ID"), c.req.param("taskId"));
   const rawQuery = c.req.query();
@@ -30,7 +30,7 @@ export const listComments = async (c: Context) => {
   return successResponse(c, { comments: data, pagination });
 };
 
-export const addComment = async (c: Context) => {
+export const addComment = async (c: AppContext) => {
   const user = c.get("user");
   const taskId = parse(uuidSchema("Task ID"), c.req.param("taskId"));
   const body = await c.req.json();
@@ -40,7 +40,7 @@ export const addComment = async (c: Context) => {
   return successResponse(c, comment, 201);
 };
 
-export const editComment = async (c: Context) => {
+export const editComment = async (c: AppContext) => {
   const user = c.get("user");
   const commentId = parse(uuidSchema("Comment ID"), c.req.param("commentId"));
   const body = await c.req.json();
@@ -50,7 +50,7 @@ export const editComment = async (c: Context) => {
   return successResponse(c, updated);
 };
 
-export const removeComment = async (c: Context) => {
+export const removeComment = async (c: AppContext) => {
   const user = c.get("user");
   const commentId = parse(uuidSchema("Comment ID"), c.req.param("commentId"));
 

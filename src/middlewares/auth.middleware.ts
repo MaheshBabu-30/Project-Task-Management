@@ -2,9 +2,11 @@ import { verifyToken } from "../utils/jwt.js";
 import { db } from "../config/db.js";
 import { users } from "../db/schema.js";
 import { and, eq, isNull } from "drizzle-orm";
-import type { Context, Next } from "hono";
+import type { Next } from "hono";
+import type { AppEnv } from "../types/hono.types.js";
+import type { Context } from "hono";
 
-export const authMiddleware = async (c: Context, next: Next) => {
+export const authMiddleware = async (c: Context<AppEnv>, next: Next): Promise<Response | void> => {
   const authHeader = c.req.header("authorization");
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {

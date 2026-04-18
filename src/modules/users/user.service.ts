@@ -8,13 +8,14 @@ import {
   TASK_NOT_FOUND, NOT_PROJECT_MEMBER, USER_NOT_IN_ORG, USER_NOT_FOUND,
   CANNOT_DEACTIVATE_SELF, ADMIN_DEVELOPER_STATUS_ONLY, WRONG_ORG_USER,
 } from "../../constants/appMessages.js";
+import type { PaginationQuery } from "../../types/common.types.js";
 
-interface UserQuery {
+interface UserQuery extends PaginationQuery {
   id?: string; name?: string; email?: string;
   role?: "superadmin" | "admin" | "developer";
   status?: "active" | "inactive";
   orgId?: string; projectId?: string; taskId?: string;
-  page?: number; limit?: number; sortBy?: string; order?: string; unassigned?: boolean;
+  unassigned?: boolean;
 }
 
 // ─── Create User ─────────────────────────────────────────────────────────────
@@ -100,8 +101,10 @@ export const getUsers = async (
 
     const whereCondition = and(...filters);
     const offset = (page - 1) * limit;
-    const validColumns: Record<string, any> = { id: users.id, name: users.name, email: users.email, role: users.role, status: users.status, createdAt: users.createdAt };
-    const orderDirection = order === "desc" ? desc(validColumns[sortBy] || users.id) : asc(validColumns[sortBy] || users.id);
+    const sortColumns = { id: users.id, name: users.name, email: users.email, role: users.role, status: users.status, createdAt: users.createdAt } as const;
+    type SortKey = keyof typeof sortColumns;
+    const orderColumn = (sortBy && sortBy in sortColumns) ? sortColumns[sortBy as SortKey] : users.id;
+    const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
     const data = await db.select({
       id: users.id, name: users.name, email: users.email, role: users.role, status: users.status,
@@ -133,8 +136,10 @@ export const getUsers = async (
 
   const whereCondition = and(...filters);
   const offset = (page - 1) * limit;
-  const validColumns: Record<string, any> = { id: users.id, name: users.name, email: users.email, role: users.role, status: users.status, createdAt: users.createdAt };
-  const orderDirection = order === "desc" ? desc(validColumns[sortBy] || users.id) : asc(validColumns[sortBy] || users.id);
+  const sortColumns = { id: users.id, name: users.name, email: users.email, role: users.role, status: users.status, createdAt: users.createdAt } as const;
+  type SortKey = keyof typeof sortColumns;
+  const orderColumn = (sortBy && sortBy in sortColumns) ? sortColumns[sortBy as SortKey] : users.id;
+  const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
   const data = await db.select({
     id: users.id, name: users.name, email: users.email, role: users.role, status: users.status,
