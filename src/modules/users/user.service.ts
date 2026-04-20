@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import { db } from "../../config/db.js";
-import { users, orgMembers, projectMembers, taskAssignees, tasks } from "../../db/schema.js";
+import { users, orgMembers, projects, projectMembers, taskAssignees, tasks } from "../../db/schema.js";
 import { eq, ilike, and, asc, desc, isNull, inArray, notInArray, count, sql } from "drizzle-orm";
 import { BadRequestException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
 import {
@@ -178,7 +178,85 @@ export const getUserById = async (userId: string, contextOrgId?: string) => {
 
   if (!user) throw new NotFoundException(USER_NOT_FOUND);
 
-  return user;
+  // Fetch projects, tasks, and stats in parallel
+  const [userProjects, userTasks, taskStats] = await Promise.all([
+    // Projects the user is a member of
+    db
+      .select({
+        id: projects.id,
+        title: projects.title,
+        description: projects.description,
+        logoUrl: projects.logoUrl,
+        status: projects.status,
+        createdAt: projects.createdAt,
+      })
+      .from(projectMembers)
+      .innerJoin(projects, eq(projectMembers.projectId, projects.id))
+      .where(and(eq(projectMembers.userId, userId), isNull(projects.deletedAt))),
+
+    // Tasks assigned to the user (top-level only)
+    db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        status: tasks.status,
+        priority: tasks.priority,
+        dueDate: tasks.dueDate,
+        projectId: tasks.projectId,
+        completedAt: tasks.completedAt,
+        createdAt: tasks.createdAt,
+      })
+      .from(taskAssignees)
+      .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id))
+      .where(and(eq(taskAssignees.userId, userId), isNull(tasks.deletedAt), isNull(tasks.parentTaskId))),
+
+    // Aggregate task stats
+    db
+      .select({
+        total: count(),
+        completed: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' THEN 1 END)`.mapWith(Number),
+        pending: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'to_do' AND NOT (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE) THEN 1 END)`.mapWith(Number),
+        inProgress: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'in_progress' AND NOT (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE) THEN 1 END)`.mapWith(Number),
+        onHold: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'on_hold' THEN 1 END)`.mapWith(Number),
+        overdue: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'overdue' OR (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE AND ${tasks.status} NOT IN ('completed', 'on_hold', 'overdue')) THEN 1 END)`.mapWith(Number),
+        onTime: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' AND (${tasks.dueDate} IS NULL OR ${tasks.completedAt} <= ${tasks.dueDate}::timestamp) THEN 1 END)`.mapWith(Number),
+        offTime: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' AND ${tasks.dueDate} IS NOT NULL AND ${tasks.completedAt} > ${tasks.dueDate}::timestamp THEN 1 END)`.mapWith(Number),
+      })
+      .from(taskAssignees)
+      .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id))
+      .where(and(eq(taskAssignees.userId, userId), isNull(tasks.deletedAt), isNull(tasks.parentTaskId))),
+  ]);
+
+  const stats = taskStats[0] ?? { total: 0, completed: 0, pending: 0, inProgress: 0, onHold: 0, overdue: 0, onTime: 0, offTime: 0 };
+
+  // Group tasks under their respective project
+  const tasksByProject = new Map<string, typeof userTasks>();
+  for (const task of userTasks) {
+    const existing = tasksByProject.get(task.projectId) ?? [];
+    existing.push(task);
+    tasksByProject.set(task.projectId, existing);
+  }
+
+  const projectsWithTasks = userProjects.map((project) => ({
+    ...project,
+    tasks: tasksByProject.get(project.id) ?? [],
+  }));
+
+  return {
+    ...user,
+    stats: {
+      totalProjects: userProjects.length,
+      totalTasks: stats.total,
+      completed: stats.completed,
+      pending: stats.pending,
+      inProgress: stats.inProgress,
+      onHold: stats.onHold,
+      overdue: stats.overdue,
+      onTime: stats.onTime,
+      offTime: stats.offTime,
+    },
+    projects: projectsWithTasks,
+  };
 };
 
 // ─── Update User Status ───────────────────────────────────────────────────────
