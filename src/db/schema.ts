@@ -271,6 +271,7 @@ export const comments = pgTable(
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
     authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    parentCommentId: uuid("parent_comment_id"),
     body: text("body").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -279,6 +280,7 @@ export const comments = pgTable(
   (table) => [
     index("comments_task_id_idx").on(table.taskId),
     index("comments_author_id_idx").on(table.authorId),
+    index("comments_parent_comment_id_idx").on(table.parentCommentId),
   ]
 );
 

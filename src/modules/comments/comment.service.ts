@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { comments, tasks, projects, taskAssignees, users } from "../../db/schema.js";
-import { eq, and, isNull, asc, desc, count, inArray } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, asc, desc, count, inArray } from "drizzle-orm";
 import { ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import { TASK_NOT_FOUND, NO_ORG_ASSIGNED, ACCESS_DENIED, TASK_NOT_ASSIGNED, COMMENT_NOT_FOUND, COMMENT_EDIT_OWN, COMMENT_DELETE_OWN } from "../../constants/appMessages.js";
 import { createNotification } from "../notifications/notification.service.js";
@@ -57,12 +57,13 @@ export const getComments = async (
   const { page = 1, limit = 20, order = "asc", authorId } = query;
   const offset = (page - 1) * limit;
 
-  const conditions = [eq(comments.taskId, taskId), isNull(comments.deletedAt)];
-  if (authorId) conditions.push(eq(comments.authorId, authorId));
+  // Only paginate & filter top-level comments; replies are fetched separately
+  const topLevelConditions = [eq(comments.taskId, taskId), isNull(comments.deletedAt), isNull(comments.parentCommentId)];
+  if (authorId) topLevelConditions.push(eq(comments.authorId, authorId));
 
-  const whereCondition = and(...conditions);
+  const whereCondition = and(...topLevelConditions);
 
-  const [rawData, countResult] = await Promise.all([
+  const [rawData, countResult, allReplies] = await Promise.all([
     db
       .select()
       .from(comments)
@@ -71,9 +72,17 @@ export const getComments = async (
       .limit(limit)
       .offset(offset),
     db.select({ total: count() }).from(comments).where(whereCondition),
+    // Fetch all replies for this task in one query
+    db
+      .select()
+      .from(comments)
+      .where(and(eq(comments.taskId, taskId), isNull(comments.deletedAt), isNotNull(comments.parentCommentId)))
+      .orderBy(asc(comments.createdAt)),
   ]);
 
-  const authorIds = [...new Set(rawData.map((c) => c.authorId).filter(Boolean))] as string[];
+  // Resolve all authors in one query
+  const allRows = [...rawData, ...allReplies];
+  const authorIds = [...new Set(allRows.map((c) => c.authorId).filter(Boolean))] as string[];
   const authorsMap: Record<string, UserSummary> = {};
   if (authorIds.length > 0) {
     const authors = await db
@@ -83,9 +92,22 @@ export const getComments = async (
     authors.forEach((a) => { authorsMap[a.id] = a; });
   }
 
+  // Group replies by parentCommentId
+  const repliesByParent = new Map<string, typeof allReplies>();
+  for (const reply of allReplies) {
+    const parentId = reply.parentCommentId!;
+    const existing = repliesByParent.get(parentId) ?? [];
+    existing.push(reply);
+    repliesByParent.set(parentId, existing);
+  }
+
   const data = rawData.map((c) => ({
     ...c,
     author: c.authorId ? (authorsMap[c.authorId] ?? null) : null,
+    replies: (repliesByParent.get(c.id) ?? []).map((r) => ({
+      ...r,
+      author: r.authorId ? (authorsMap[r.authorId] ?? null) : null,
+    })),
   }));
 
   return { data, totalRecords: countResult[0]?.total ?? 0 };
@@ -93,12 +115,24 @@ export const getComments = async (
 
 // ─── Create Comment ───────────────────────────────────────────────────────────
 
-export const createComment = async (taskId: string, body: string, user: User) => {
+export const createComment = async (taskId: string, body: string, user: User, parentCommentId?: string) => {
   await verifyTaskAccess(taskId, user);
+
+  if (parentCommentId) {
+    const [parent] = await db
+      .select({ id: comments.id, taskId: comments.taskId, parentCommentId: comments.parentCommentId })
+      .from(comments)
+      .where(and(eq(comments.id, parentCommentId), isNull(comments.deletedAt)))
+      .limit(1);
+
+    if (!parent) throw new NotFoundException("Parent comment not found");
+    if (parent.taskId !== taskId) throw new NotFoundException("Parent comment does not belong to this task");
+    if (parent.parentCommentId) throw new NotFoundException("Cannot reply to a reply");
+  }
 
   const [comment] = await db
     .insert(comments)
-    .values({ taskId, authorId: user.userId, body })
+    .values({ taskId, authorId: user.userId, body, parentCommentId: parentCommentId ?? null })
     .returning();
 
   if (!comment) throw new InternalServerException("Failed to create comment");

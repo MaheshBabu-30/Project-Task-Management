@@ -2,6 +2,7 @@ import { object, string, optional, number, minValue, maxValue, pipe, picklist, m
 
 export const createCommentSchema = object({
   body: pipe(string(), trim(), nonEmpty("Comment cannot be empty"), minLength(1, "Comment cannot be empty"), maxLength(2000, "Comment too long")),
+  parentCommentId: optional(string()),
 });
 
 export const updateCommentSchema = object({
