@@ -351,12 +351,14 @@ export const getTasks = async (
         onHold: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'on_hold' THEN 1 END)`.mapWith(Number),
         overdue: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'overdue' OR (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE AND ${tasks.status} NOT IN ('completed', 'on_hold', 'overdue')) THEN 1 END)`.mapWith(Number),
         completed: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' THEN 1 END)`.mapWith(Number),
+        onTime: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' AND (${tasks.dueDate} IS NULL OR ${tasks.completedAt} <= ${tasks.dueDate}::timestamp) THEN 1 END)`.mapWith(Number),
+        offTime: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' AND ${tasks.dueDate} IS NOT NULL AND ${tasks.completedAt} > ${tasks.dueDate}::timestamp THEN 1 END)`.mapWith(Number),
       })
       .from(tasks)
       .where(statsWhereCondition),
   ]);
 
-  const s = statsResult[0] ?? { total: 0, todo: 0, inProgress: 0, onHold: 0, overdue: 0, completed: 0 };
+  const s = statsResult[0] ?? { total: 0, todo: 0, inProgress: 0, onHold: 0, overdue: 0, completed: 0, onTime: 0, offTime: 0 };
 
   return {
     data: dataWithAssignees,
@@ -368,6 +370,8 @@ export const getTasks = async (
       onHold: s.onHold,
       overdue: s.overdue,
       completed: s.completed,
+      onTime: s.onTime,
+      offTime: s.offTime,
     },
   };
 };
