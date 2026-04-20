@@ -261,7 +261,7 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
         completed: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' THEN 1 END)`.mapWith(Number),
       })
       .from(tasks)
-      .where(and(eq(tasks.projectId, id), isNull(tasks.deletedAt))),
+      .where(and(eq(tasks.projectId, id), isNull(tasks.deletedAt), isNull(tasks.parentTaskId))),
 
     db
       .select({
@@ -270,7 +270,7 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
       })
       .from(taskAssignees)
       .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id))
-      .where(and(eq(tasks.projectId, id), isNull(tasks.deletedAt)))
+      .where(and(eq(tasks.projectId, id), isNull(tasks.deletedAt), isNull(tasks.parentTaskId)))
       .groupBy(taskAssignees.userId),
   ]);
 
