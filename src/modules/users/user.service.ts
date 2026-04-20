@@ -246,7 +246,7 @@ export const getUserById = async (userId: string, contextOrgId?: string) => {
     : [];
 
   // Map assignees by taskId
-  const assigneesByTask = new Map<string, { id: string; name: string; avatarUrl: string | null }[]>();
+  const assigneesByTask = new Map<string, { id: string; name: string; email: string; avatarUrl: string | null }[]>();
   for (const assignee of allAssignees) {
     const existing = assigneesByTask.get(assignee.taskId) ?? [];
     existing.push({ id: assignee.id, name: assignee.name, email: assignee.email, avatarUrl: assignee.avatarUrl });
