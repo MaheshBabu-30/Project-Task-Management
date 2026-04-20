@@ -229,9 +229,38 @@ export const getUserById = async (userId: string, contextOrgId?: string) => {
 
   const stats = taskStats[0] ?? { total: 0, completed: 0, pending: 0, inProgress: 0, onHold: 0, overdue: 0, onTime: 0, offTime: 0 };
 
+  // Fetch all assignees for the user's tasks
+  const taskIds = userTasks.map((t) => t.id);
+  const allAssignees = taskIds.length > 0
+    ? await db
+        .select({
+          taskId: taskAssignees.taskId,
+          id: users.id,
+          name: users.name,
+          avatarUrl: users.avatarUrl,
+        })
+        .from(taskAssignees)
+        .innerJoin(users, eq(taskAssignees.userId, users.id))
+        .where(inArray(taskAssignees.taskId, taskIds))
+    : [];
+
+  // Map assignees by taskId
+  const assigneesByTask = new Map<string, { id: string; name: string; avatarUrl: string | null }[]>();
+  for (const assignee of allAssignees) {
+    const existing = assigneesByTask.get(assignee.taskId) ?? [];
+    existing.push({ id: assignee.id, name: assignee.name, avatarUrl: assignee.avatarUrl });
+    assigneesByTask.set(assignee.taskId, existing);
+  }
+
+  // Attach assignees to each task
+  const tasksWithAssignees = userTasks.map((task) => ({
+    ...task,
+    assignees: assigneesByTask.get(task.id) ?? [],
+  }));
+
   // Group tasks under their respective project
-  const tasksByProject = new Map<string, typeof userTasks>();
-  for (const task of userTasks) {
+  const tasksByProject = new Map<string, typeof tasksWithAssignees>();
+  for (const task of tasksWithAssignees) {
     const existing = tasksByProject.get(task.projectId) ?? [];
     existing.push(task);
     tasksByProject.set(task.projectId, existing);
