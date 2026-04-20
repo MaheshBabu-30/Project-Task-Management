@@ -237,6 +237,7 @@ export const getUserById = async (userId: string, contextOrgId?: string) => {
           taskId: taskAssignees.taskId,
           id: users.id,
           name: users.name,
+          email: users.email,
           avatarUrl: users.avatarUrl,
         })
         .from(taskAssignees)
@@ -248,7 +249,7 @@ export const getUserById = async (userId: string, contextOrgId?: string) => {
   const assigneesByTask = new Map<string, { id: string; name: string; avatarUrl: string | null }[]>();
   for (const assignee of allAssignees) {
     const existing = assigneesByTask.get(assignee.taskId) ?? [];
-    existing.push({ id: assignee.id, name: assignee.name, avatarUrl: assignee.avatarUrl });
+    existing.push({ id: assignee.id, name: assignee.name, email: assignee.email, avatarUrl: assignee.avatarUrl });
     assigneesByTask.set(assignee.taskId, existing);
   }
 
