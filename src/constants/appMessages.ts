@@ -65,7 +65,7 @@ export const PARENT_TASK_NOT_FOUND        = "Parent task not found";
 export const SUBTASK_WRONG_PROJECT        = "Subtask must belong to the same project as its parent";
 export const SUBTASK_MAX_DEPTH            = "Cannot create a subtask of a subtask. Max 1 level deep.";
 export const INVALID_STATUS_TRANSITION    = (from: string, to: string) => `Cannot transition from "${from}" to "${to}"`;
-export const SUBTASK_LOCKED_BY_PARENT     = "Cannot change the status of a subtask while its parent task is completed. Reopen the parent task first.";
+export const SUBTASK_LOCKED_BY_PARENT     = "Cannot change the status of a subtask while its parent task is completed or on hold. Update the parent task status first.";
 export const INCOMPLETE_SUBTASKS          = (n: number) => `Cannot complete this task: ${n} subtask(s) are not yet completed`;
 
 // ─── Comments ─────────────────────────────────────────────────────────────────

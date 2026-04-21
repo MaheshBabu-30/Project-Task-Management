@@ -280,10 +280,10 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
     db
       .select({
         total: count(),
-        pending: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'to_do' AND NOT (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE) THEN 1 END)`.mapWith(Number),
-        inProgress: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'in_progress' AND NOT (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE) THEN 1 END)`.mapWith(Number),
+        pending: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'to_do' THEN 1 END)`.mapWith(Number),
+        inProgress: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'in_progress' THEN 1 END)`.mapWith(Number),
         onHold: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'on_hold' THEN 1 END)`.mapWith(Number),
-        overdue: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'overdue' OR (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE AND ${tasks.status} NOT IN ('completed', 'on_hold', 'overdue')) THEN 1 END)`.mapWith(Number),
+        overdue: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'overdue' THEN 1 END)`.mapWith(Number),
         completed: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' THEN 1 END)`.mapWith(Number),
       })
       .from(tasks)

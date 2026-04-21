@@ -43,26 +43,6 @@ type TaskUpdatePayload = {
   updatedAt?: Date;
 };
 
-// ─── Compute Effective Task Status ───────────────────────────────────────────
-
-const getEffectiveStatus = (task: { dueDate: string | null; status: string }): TaskStatus => {
-  const today = new Date().toISOString().split("T")[0]!;
-  if (
-    task.dueDate &&
-    task.dueDate < today &&
-    !["completed", "on_hold", "overdue"].includes(task.status)
-  ) {
-    return "overdue";
-  }
-  return task.status as TaskStatus;
-};
-
-// Returns true if the task is past its due date, regardless of status.
-// Used to surface an isOverdue flag on on_hold tasks so the UI can show both signals.
-const isTaskOverdue = (task: { dueDate: string | null; status: string }): boolean => {
-  const today = new Date().toISOString().split("T")[0]!;
-  return !!task.dueDate && task.dueDate < today && task.status !== "completed";
-};
 
 
 // ─── Helper: Update Project Status ───────────────────────────────────────────
@@ -360,8 +340,6 @@ export const getTasks = async (
 
   const dataWithAssignees = data.map((task) => ({
     ...task,
-    status: getEffectiveStatus(task),
-    isOverdue: isTaskOverdue(task),
     assignees: assigneesMap[task.id] || [],
     creator: task.createdBy ? (creatorsMap[task.createdBy] ?? null) : null,
   }));
@@ -372,10 +350,10 @@ export const getTasks = async (
     db
       .select({
         total: count(),
-        todo: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'to_do' AND NOT (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE) THEN 1 END)`.mapWith(Number),
-        inProgress: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'in_progress' AND NOT (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE) THEN 1 END)`.mapWith(Number),
+        todo: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'to_do' THEN 1 END)`.mapWith(Number),
+        inProgress: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'in_progress' THEN 1 END)`.mapWith(Number),
         onHold: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'on_hold' THEN 1 END)`.mapWith(Number),
-        overdue: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'overdue' OR (${tasks.dueDate} IS NOT NULL AND ${tasks.dueDate} < CURRENT_DATE AND ${tasks.status} NOT IN ('completed', 'on_hold', 'overdue')) THEN 1 END)`.mapWith(Number),
+        overdue: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'overdue' THEN 1 END)`.mapWith(Number),
         completed: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' THEN 1 END)`.mapWith(Number),
         onTime: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' AND (${tasks.dueDate} IS NULL OR ${tasks.completedAt} <= ${tasks.dueDate}::timestamp) THEN 1 END)`.mapWith(Number),
         offTime: sql<number>`COUNT(CASE WHEN ${tasks.status} = 'completed' AND ${tasks.dueDate} IS NOT NULL AND ${tasks.completedAt} > ${tasks.dueDate}::timestamp THEN 1 END)`.mapWith(Number),
@@ -495,11 +473,11 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
         subtaskAssigneesMap[a.taskId!]!.push({ id: a.id, name: a.name, email: a.email, avatarUrl: a.avatarUrl });
       });
 
-      subtasks = rawSubtasks.map((s) => ({ ...s, status: getEffectiveStatus(s), isOverdue: isTaskOverdue(s), assignees: subtaskAssigneesMap[s.id] ?? [] }));
+      subtasks = rawSubtasks.map((s) => ({ ...s, assignees: subtaskAssigneesMap[s.id] ?? [] }));
     }
   }
 
-  return { ...task, status: getEffectiveStatus(task), isOverdue: isTaskOverdue(task), assignees, creator: creator ?? null, subtasks };
+  return { ...task, assignees, creator: creator ?? null, subtasks };
 };
 
 // ─── Update Task ──────────────────────────────────────────────────────────────
@@ -522,24 +500,22 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
 
     if (!task) throw new NotFoundException(M.TASK_NOT_FOUND_OR_DENIED);
 
-    // 2. Enforce status transition rules — use effective status so overdue tasks
-    //    are validated from their visible state, not the raw DB status.
-    const effectiveStatus = getEffectiveStatus(task);
-    if (data.status && data.status !== effectiveStatus) {
-      const allowed = ALLOWED_STATUS_TRANSITIONS[effectiveStatus] ?? [];
+    // 2. Enforce status transition rules
+    if (data.status && data.status !== task.status) {
+      const allowed = ALLOWED_STATUS_TRANSITIONS[task.status] ?? [];
       if (!allowed.includes(data.status)) {
-        throw new BadRequestException(M.INVALID_STATUS_TRANSITION(effectiveStatus, data.status));
+        throw new BadRequestException(M.INVALID_STATUS_TRANSITION(task.status, data.status));
       }
     }
 
-    // Prevent any status change on a subtask if its parent task is already completed
-    if (data.status && data.status !== effectiveStatus && task.parentTaskId) {
+    // Prevent any status change on a subtask if its parent task is completed or on_hold
+    if (data.status && data.status !== task.status && task.parentTaskId) {
       const [parentTask] = await tx
         .select({ status: tasks.status })
         .from(tasks)
         .where(and(eq(tasks.id, task.parentTaskId), isNull(tasks.deletedAt)));
 
-      if (parentTask?.status === "completed") {
+      if (parentTask?.status === "completed" || parentTask?.status === "on_hold") {
         throw new BadRequestException(M.SUBTASK_LOCKED_BY_PARENT);
       }
     }
@@ -564,11 +540,9 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
     const preparedData: TaskUpdatePayload = { ...updateData, updatedAt: new Date() };
     if (data.dueDate !== undefined) preparedData.dueDate = data.dueDate;
 
-    // Set completedAt when transitioning to/from completed
+    // Set completedAt when transitioning to completed
     if (data.status === "completed" && task.status !== "completed") {
       preparedData.completedAt = new Date();
-    } else if (data.status && data.status !== "completed" && task.status === "completed") {
-      preparedData.completedAt = null;
     }
 
     const [updated] = await tx
@@ -654,7 +628,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
         .where(eq(users.id, result.createdBy))
     : [null];
 
-  return { ...result, status: getEffectiveStatus(result), isOverdue: isTaskOverdue(result), assignees, creator: creator ?? null };
+  return { ...result, assignees, creator: creator ?? null };
 };
 
 // ─── Update Task Status Only (Developer + Admin) ─────────────────────────────
@@ -693,27 +667,21 @@ export const updateTaskStatus = async (
       if (!assigned) throw new ForbiddenException(M.TASK_NOT_ASSIGNED);
     }
 
-    // Enforce transition rules — use effective status so an overdue task (whose
-    // DB status may be to_do or in_progress) is validated from its visible state.
-    const effectiveStatus = getEffectiveStatus(task);
-    const allowed = ALLOWED_STATUS_TRANSITIONS[effectiveStatus] ?? [];
+    // Enforce transition rules
+    const allowed = ALLOWED_STATUS_TRANSITIONS[task.status] ?? [];
     if (!allowed.includes(newStatus as TaskStatus)) {
-      throw new BadRequestException(M.INVALID_STATUS_TRANSITION(effectiveStatus, newStatus));
+      throw new BadRequestException(M.INVALID_STATUS_TRANSITION(task.status, newStatus));
     }
 
-    // Only admins and superadmins can reopen a completed task
-    if (task.status === "completed" && user.role === "developer") {
-      throw new ForbiddenException(M.ONLY_ADMINS_CAN_REOPEN);
-    }
 
-    // Prevent any status change on a subtask if its parent task is already completed
+    // Prevent any status change on a subtask if its parent task is completed or on_hold
     if (task.parentTaskId) {
       const [parentTask] = await tx
         .select({ status: tasks.status })
         .from(tasks)
         .where(and(eq(tasks.id, task.parentTaskId), isNull(tasks.deletedAt)));
 
-      if (parentTask?.status === "completed") {
+      if (parentTask?.status === "completed" || parentTask?.status === "on_hold") {
         throw new BadRequestException(M.SUBTASK_LOCKED_BY_PARENT);
       }
     }
@@ -734,11 +702,11 @@ export const updateTaskStatus = async (
       }
     }
 
-    const completedAt = newStatus === "completed" ? new Date() : null;
+    const completedAt = newStatus === "completed" ? new Date() : undefined;
 
     const [updated] = await tx
       .update(tasks)
-      .set({ status: newStatus as TaskStatus, completedAt, updatedAt: new Date() })
+      .set({ status: newStatus as TaskStatus, ...(completedAt !== undefined && { completedAt }), updatedAt: new Date() })
       .where(eq(tasks.id, id))
       .returning();
 
@@ -783,7 +751,7 @@ export const updateTaskStatus = async (
         .where(eq(users.id, statusResult.createdBy))
     : [null];
 
-  return { ...statusResult, status: getEffectiveStatus(statusResult), isOverdue: isTaskOverdue(statusResult), assignees, creator: creator ?? null };
+  return { ...statusResult, assignees, creator: creator ?? null };
 };
 
 // ─── Soft Delete Task ────────────────────────────────────────────────────────
