@@ -1,5 +1,5 @@
 {
-  "name": "project-task-management-hono",
+  "name": "task-miller",
   "version": "1.0.0",
   "main": "index.js",
   "type": "module",
