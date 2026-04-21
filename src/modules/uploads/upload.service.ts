@@ -11,7 +11,7 @@ export const generatePresignedUploadUrl = async (params: {
   contentType: string;
   folder: string;
 }) => {
-  const { orgId, userId, fileName, contentType, folder } = params;
+  const { orgId, userId, fileName, folder } = params;
 
   if (!B2_BUCKET_NAME) throw new InternalServerException(BUCKET_NOT_CONFIGURED);
 
