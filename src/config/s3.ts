@@ -12,7 +12,7 @@ export const s3Client = new S3Client({
     secretAccessKey: env.B2_SECRET_ACCESS_KEY ?? "",
   },
   forcePathStyle: true, // Required for some S3-compatible providers like B2
-  requestChecksumCalculation: "when_required", // Disable auto CRC32 checksums — not supported by B2
+  requestChecksumCalculation: "WHEN_REQUIRED", // Disable auto CRC32 checksums — not supported by B2
 });
 
 export const B2_BUCKET_NAME = env.B2_BUCKET_NAME;
