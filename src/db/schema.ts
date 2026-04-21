@@ -335,6 +335,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "task_completed",
   "comment_added",
   "comment_mentioned",
+  "comment_replied",
   "member_removed",
 ]);
 

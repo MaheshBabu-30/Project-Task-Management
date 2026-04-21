@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { comments, commentMentions, tasks, projects, taskAssignees, users } from "../../db/schema.js";
+import { comments, commentMentions, tasks, projects, taskAssignees, orgMembers, users } from "../../db/schema.js";
 import { eq, and, isNull, isNotNull, asc, desc, count, inArray } from "drizzle-orm";
 import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import { TASK_NOT_FOUND, NO_ORG_ASSIGNED, ACCESS_DENIED, TASK_NOT_ASSIGNED, COMMENT_NOT_FOUND, COMMENT_EDIT_OWN, COMMENT_DELETE_OWN } from "../../constants/appMessages.js";
@@ -12,6 +12,13 @@ type User = { userId: string; role: string; orgId?: string };
 interface CommentQuery extends PaginationQuery {
   authorId?: string;
 }
+
+// ─── Parse @<uuid> mentions from body ────────────────────────────────────────
+
+const parseMentionIds = (body: string): string[] => {
+  const matches = body.match(/@([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi) ?? [];
+  return [...new Set(matches.map((m) => m.slice(1).toLowerCase()))]; // strip leading @, deduplicate
+};
 
 // ─── Verify task access ───────────────────────────────────────────────────────
 
@@ -45,9 +52,52 @@ const verifyTaskAccess = async (taskId: string, user: User) => {
   return task;
 };
 
+// ─── Validate mentioned users have task access ────────────────────────────────
+
+const validateMentionedUsers = async (
+  mentionedIds: string[],
+  projectId: string
+): Promise<void> => {
+  if (mentionedIds.length === 0) return;
+
+  // Get the org that owns the project
+  const [project] = await db
+    .select({ orgId: projects.orgId })
+    .from(projects)
+    .where(eq(projects.id, projectId));
+
+  if (!project) return;
+
+  // Valid: org members (any role) + superadmins
+  const [orgMemberRows, superadmins] = await Promise.all([
+    db
+      .select({ userId: orgMembers.userId })
+      .from(orgMembers)
+      .where(and(eq(orgMembers.orgId, project.orgId), inArray(orgMembers.userId, mentionedIds))),
+    db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.role, "superadmin"), inArray(users.id, mentionedIds))),
+  ]);
+
+  const validIds = new Set([
+    ...orgMemberRows.map((r) => r.userId),
+    ...superadmins.map((r) => r.id),
+  ]);
+
+  const invalid = mentionedIds.filter((id) => !validIds.has(id));
+  if (invalid.length > 0) {
+    throw new BadRequestException("Mentioned users must have access to this task");
+  }
+};
+
 // ─── Build recursive comment tree ────────────────────────────────────────────
 
-type RawComment = { id: string; taskId: string; authorId: string | null; parentCommentId: string | null; body: string; createdAt: Date | null; updatedAt: Date | null; deletedAt: Date | null };
+type RawComment = {
+  id: string; taskId: string; authorId: string | null;
+  parentCommentId: string | null; body: string;
+  createdAt: Date | null; updatedAt: Date | null; deletedAt: Date | null;
+};
 type CommentNode = RawComment & { author: UserSummary | null; mentions: UserSummary[]; replies: CommentNode[] };
 
 const buildTree = (
@@ -66,6 +116,16 @@ const buildTree = (
     }));
 };
 
+// ─── Collect all descendant comment IDs (recursive) ──────────────────────────
+
+const collectDescendantIds = (
+  all: { id: string; parentCommentId: string | null }[],
+  parentId: string
+): string[] => {
+  const children = all.filter((c) => c.parentCommentId === parentId);
+  return children.flatMap((c) => [c.id, ...collectDescendantIds(all, c.id)]);
+};
+
 // ─── List Comments ────────────────────────────────────────────────────────────
 
 export const getComments = async (
@@ -78,7 +138,6 @@ export const getComments = async (
   const { page = 1, limit = 20, order = "asc", authorId } = query;
   const offset = (page - 1) * limit;
 
-  // Count and paginate top-level comments only
   const topLevelConditions = [eq(comments.taskId, taskId), isNull(comments.deletedAt), isNull(comments.parentCommentId)];
   if (authorId) topLevelConditions.push(eq(comments.authorId, authorId));
 
@@ -91,7 +150,6 @@ export const getComments = async (
       .limit(limit)
       .offset(offset),
     db.select({ total: count() }).from(comments).where(and(...topLevelConditions)),
-    // All nested replies (any depth) for this task
     db
       .select()
       .from(comments)
@@ -103,7 +161,6 @@ export const getComments = async (
   const allIds = allRows.map((c) => c.id);
   const authorIds = [...new Set(allRows.map((c) => c.authorId).filter(Boolean))] as string[];
 
-  // Batch fetch authors and mentions in parallel
   const authorsMap: Record<string, UserSummary> = {};
   const mentionsMap: Record<string, UserSummary[]> = {};
 
@@ -136,7 +193,6 @@ export const getComments = async (
       : Promise.resolve(),
   ]);
 
-  // Build recursive tree starting from top-level comments
   const data = topLevel.map((c) => ({
     ...c,
     author: c.authorId ? (authorsMap[c.authorId] ?? null) : null,
@@ -154,34 +210,29 @@ export const createComment = async (
   body: string,
   user: User,
   parentCommentId?: string,
-  mentionedUserIds?: string[]
 ) => {
-  await verifyTaskAccess(taskId, user);
+  const task = await verifyTaskAccess(taskId, user);
 
   // Validate parent comment exists and belongs to same task
+  let parentAuthorId: string | null = null;
   if (parentCommentId) {
     const [parent] = await db
-      .select({ id: comments.id, taskId: comments.taskId })
+      .select({ id: comments.id, taskId: comments.taskId, authorId: comments.authorId })
       .from(comments)
       .where(and(eq(comments.id, parentCommentId), isNull(comments.deletedAt)))
       .limit(1);
 
     if (!parent) throw new NotFoundException("Parent comment not found");
     if (parent.taskId !== taskId) throw new NotFoundException("Parent comment does not belong to this task");
+    parentAuthorId = parent.authorId;
   }
 
-  // Validate mentioned users are task assignees
-  if (mentionedUserIds && mentionedUserIds.length > 0) {
-    const assignees = await db
-      .select({ userId: taskAssignees.userId })
-      .from(taskAssignees)
-      .where(and(eq(taskAssignees.taskId, taskId), inArray(taskAssignees.userId, mentionedUserIds)));
+  // Parse @<uuid> mentions from body
+  const mentionedIds = parseMentionIds(body);
 
-    const validIds = new Set(assignees.map((a) => a.userId));
-    const invalid = mentionedUserIds.filter((id) => !validIds.has(id));
-    if (invalid.length > 0) {
-      throw new BadRequestException("Mentioned users must be assignees of this task");
-    }
+  // Validate mentioned users have access to the task
+  if (mentionedIds.length > 0) {
+    await validateMentionedUsers(mentionedIds, task.projectId);
   }
 
   const [comment] = await db
@@ -191,12 +242,12 @@ export const createComment = async (
 
   if (!comment) throw new InternalServerException("Failed to create comment");
 
-  // Insert mentions and notify mentioned users (fire-and-forget)
-  if (mentionedUserIds && mentionedUserIds.length > 0) {
+  // Store mentions and send mention notifications (fire-and-forget)
+  if (mentionedIds.length > 0) {
     db.insert(commentMentions)
-      .values(mentionedUserIds.map((userId) => ({ commentId: comment.id, userId })))
+      .values(mentionedIds.map((userId) => ({ commentId: comment.id, userId })))
       .then(() => {
-        for (const userId of mentionedUserIds) {
+        for (const userId of mentionedIds) {
           if (userId === user.userId) continue;
           createNotification({
             userId,
@@ -211,15 +262,26 @@ export const createComment = async (
       .catch(catchError("createComment:insertMentions"));
   }
 
-  // Notify other task assignees about the new comment (fire-and-forget)
+  // Notify parent comment author of the reply (fire-and-forget)
+  if (parentAuthorId && parentAuthorId !== user.userId && !mentionedIds.includes(parentAuthorId)) {
+    createNotification({
+      userId: parentAuthorId,
+      type: "comment_replied",
+      title: "Someone replied to your comment",
+      body: `${body.slice(0, 100)}${body.length > 100 ? "..." : ""}`,
+      entityType: "task",
+      entityId: taskId,
+    }).catch(catchError("createComment:replyNotify"));
+  }
+
+  // Notify other task assignees (fire-and-forget) — skip those already notified
   db.select({ userId: taskAssignees.userId })
     .from(taskAssignees)
     .where(eq(taskAssignees.taskId, taskId))
     .then((assignees) => {
-      const mentionedSet = new Set(mentionedUserIds ?? []);
+      const alreadyNotified = new Set([...mentionedIds, parentAuthorId ?? "", user.userId]);
       for (const assignee of assignees) {
-        // Skip the author and anyone already notified via mention
-        if (assignee.userId === user.userId || mentionedSet.has(assignee.userId)) continue;
+        if (alreadyNotified.has(assignee.userId)) continue;
         createNotification({
           userId: assignee.userId,
           type: "comment_added",
@@ -233,11 +295,11 @@ export const createComment = async (
     .catch(catchError("createComment:fetchAssignees"));
 
   // Fetch mentions for response
-  const mentions: UserSummary[] = mentionedUserIds && mentionedUserIds.length > 0
+  const mentions: UserSummary[] = mentionedIds.length > 0
     ? await db
         .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
         .from(users)
-        .where(inArray(users.id, mentionedUserIds))
+        .where(inArray(users.id, mentionedIds))
     : [];
 
   const [author] = await db
@@ -278,16 +340,6 @@ export const updateComment = async (commentId: string, body: string, user: User)
     : [null];
 
   return { ...updated, author: author ?? null };
-};
-
-// ─── Collect all descendant comment IDs (recursive) ─────────────────────────
-
-const collectDescendantIds = (
-  all: { id: string; parentCommentId: string | null }[],
-  parentId: string
-): string[] => {
-  const children = all.filter((c) => c.parentCommentId === parentId);
-  return children.flatMap((c) => [c.id, ...collectDescendantIds(all, c.id)]);
 };
 
 // ─── Delete Comment ───────────────────────────────────────────────────────────

@@ -1,9 +1,8 @@
-import { object, string, optional, number, minValue, maxValue, pipe, picklist, minLength, maxLength, trim, nonEmpty, array } from "valibot";
+import { object, string, optional, number, minValue, maxValue, pipe, picklist, minLength, maxLength, trim, nonEmpty } from "valibot";
 
 export const createCommentSchema = object({
   body: pipe(string(), trim(), nonEmpty("Comment cannot be empty"), minLength(1, "Comment cannot be empty"), maxLength(2000, "Comment too long")),
   parentCommentId: optional(string()),
-  mentionedUserIds: optional(array(string())),
 });
 
 export const updateCommentSchema = object({
