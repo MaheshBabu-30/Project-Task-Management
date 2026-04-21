@@ -23,7 +23,6 @@ export const generatePresignedUploadUrl = async (params: {
     const command = new PutObjectCommand({
       Bucket: B2_BUCKET_NAME,
       Key: key,
-      ContentType: contentType,
     });
 
     const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 600 });
