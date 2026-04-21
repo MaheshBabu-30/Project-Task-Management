@@ -139,8 +139,21 @@ export const getProjects = async (
   const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
   const data = await db
-    .select()
+    .select({
+      id: projects.id,
+      orgId: projects.orgId,
+      orgName: organizations.name,
+      title: projects.title,
+      description: projects.description,
+      logoUrl: projects.logoUrl,
+      status: projects.status,
+      createdBy: projects.createdBy,
+      createdAt: projects.createdAt,
+      updatedAt: projects.updatedAt,
+      deletedAt: projects.deletedAt,
+    })
     .from(projects)
+    .leftJoin(organizations, eq(projects.orgId, organizations.id))
     .where(whereCondition)
     .orderBy(orderDirection)
     .limit(limit)
@@ -213,8 +226,21 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
   }
 
   const [project] = await db
-    .select()
+    .select({
+      id: projects.id,
+      orgId: projects.orgId,
+      orgName: organizations.name,
+      title: projects.title,
+      description: projects.description,
+      logoUrl: projects.logoUrl,
+      status: projects.status,
+      createdBy: projects.createdBy,
+      createdAt: projects.createdAt,
+      updatedAt: projects.updatedAt,
+      deletedAt: projects.deletedAt,
+    })
     .from(projects)
+    .leftJoin(organizations, eq(projects.orgId, organizations.id))
     .where(and(...filters))
     .limit(1);
 

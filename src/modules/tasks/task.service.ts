@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { tasks, projects, taskAssignees, projectMembers, orgMembers, users } from "../../db/schema.js";
+import { tasks, projects, taskAssignees, projectMembers, orgMembers, users, organizations } from "../../db/schema.js";
 import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, sql, type InferSelectModel } from "drizzle-orm";
 import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";
@@ -285,8 +285,26 @@ export const getTasks = async (
   const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
   const data = await db
-    .select()
+    .select({
+      id: tasks.id,
+      projectId: tasks.projectId,
+      orgId: projects.orgId,
+      orgName: organizations.name,
+      parentTaskId: tasks.parentTaskId,
+      title: tasks.title,
+      description: tasks.description,
+      status: tasks.status,
+      priority: tasks.priority,
+      dueDate: tasks.dueDate,
+      createdBy: tasks.createdBy,
+      completedAt: tasks.completedAt,
+      createdAt: tasks.createdAt,
+      updatedAt: tasks.updatedAt,
+      deletedAt: tasks.deletedAt,
+    })
     .from(tasks)
+    .leftJoin(projects, eq(tasks.projectId, projects.id))
+    .leftJoin(organizations, eq(projects.orgId, organizations.id))
     .where(whereCondition)
     .orderBy(orderDirection)
     .limit(limit)
@@ -380,20 +398,33 @@ export const getTasks = async (
 
 export const getTaskById = async (id: string, user: { userId: string; role: string; orgId?: string }) => {
   const [task] = await db
-    .select()
+    .select({
+      id: tasks.id,
+      projectId: tasks.projectId,
+      orgId: projects.orgId,
+      orgName: organizations.name,
+      parentTaskId: tasks.parentTaskId,
+      title: tasks.title,
+      description: tasks.description,
+      status: tasks.status,
+      priority: tasks.priority,
+      dueDate: tasks.dueDate,
+      createdBy: tasks.createdBy,
+      completedAt: tasks.completedAt,
+      createdAt: tasks.createdAt,
+      updatedAt: tasks.updatedAt,
+      deletedAt: tasks.deletedAt,
+    })
     .from(tasks)
+    .leftJoin(projects, eq(tasks.projectId, projects.id))
+    .leftJoin(organizations, eq(projects.orgId, organizations.id))
     .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
 
   if (!task) throw new NotFoundException(M.TASK_NOT_FOUND);
 
   // 1. Scoping Check
   if (user.role !== "superadmin") {
-    const [project] = await db
-      .select({ orgId: projects.orgId })
-      .from(projects)
-      .where(eq(projects.id, task.projectId));
-    
-    if (project?.orgId !== user.orgId) {
+    if (task.orgId !== user.orgId) {
       throw new ForbiddenException(M.ACCESS_DENIED);
     }
 
