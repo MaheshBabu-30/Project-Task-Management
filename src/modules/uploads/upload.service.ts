@@ -9,13 +9,13 @@ export const generatePresignedUploadUrl = async (params: {
   userId: string;
   fileName: string;
   contentType: string;
-  folder?: string;
+  folder: string;
 }) => {
-  const { orgId, userId, fileName, contentType, folder = "attachments" } = params;
+  const { orgId, userId, fileName, contentType, folder } = params;
 
   if (!B2_BUCKET_NAME) throw new InternalServerException(BUCKET_NOT_CONFIGURED);
 
-  const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, "_");
+  const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
   const timestamp = Date.now();
   const key = `${orgId}/${folder}/${timestamp}-${userId}-${sanitizedFileName}`;
 
