@@ -284,6 +284,26 @@ export const comments = pgTable(
   ]
 );
 
+// ─── Comment Mentions ─────────────────────────────────────────────────────────
+
+export const commentMentions = pgTable(
+  "comment_mentions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => comments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    unique("comment_mentions_unique").on(table.commentId, table.userId),
+    index("comment_mentions_comment_id_idx").on(table.commentId),
+    index("comment_mentions_user_id_idx").on(table.userId),
+  ]
+);
+
 // ─── Attachments ──────────────────────────────────────────────────────────────
 
 export const attachments = pgTable(
@@ -314,6 +334,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "task_overdue",
   "task_completed",
   "comment_added",
+  "comment_mentioned",
   "member_removed",
 ]);
 

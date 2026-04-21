@@ -4,6 +4,7 @@ export const NOTIFICATION_TYPES = [
   "task_overdue",
   "task_completed",
   "comment_added",
+  "comment_mentioned",
   "member_removed",
 ] as const;
 

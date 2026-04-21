@@ -34,13 +34,13 @@ export const addComment = async (c: AppContext) => {
   const user = c.get("user");
   const taskId = parse(uuidSchema("Task ID"), c.req.param("taskId"));
   const body = await c.req.json();
-  const { body: text, parentCommentId } = parse(createCommentSchema, body);
+  const { body: text, parentCommentId, mentionedUserIds } = parse(createCommentSchema, body);
 
   const parentId = parentCommentId
     ? parse(uuidSchema("Parent Comment ID"), parentCommentId)
     : undefined;
 
-  const comment = await createComment(taskId, text, user, parentId);
+  const comment = await createComment(taskId, text, user, parentId, mentionedUserIds);
   return successResponse(c, comment, 201);
 };
 
