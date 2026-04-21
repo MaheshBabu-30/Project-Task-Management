@@ -57,6 +57,13 @@ const getEffectiveStatus = (task: { dueDate: string | null; status: string }): T
   return task.status as TaskStatus;
 };
 
+// Returns true if the task is past its due date, regardless of status.
+// Used to surface an isOverdue flag on on_hold tasks so the UI can show both signals.
+const isTaskOverdue = (task: { dueDate: string | null; status: string }): boolean => {
+  const today = new Date().toISOString().split("T")[0]!;
+  return !!task.dueDate && task.dueDate < today && task.status !== "completed";
+};
+
 
 // ─── Helper: Update Project Status ───────────────────────────────────────────
 
@@ -354,6 +361,7 @@ export const getTasks = async (
   const dataWithAssignees = data.map((task) => ({
     ...task,
     status: getEffectiveStatus(task),
+    isOverdue: isTaskOverdue(task),
     assignees: assigneesMap[task.id] || [],
     creator: task.createdBy ? (creatorsMap[task.createdBy] ?? null) : null,
   }));
@@ -487,11 +495,11 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
         subtaskAssigneesMap[a.taskId!]!.push({ id: a.id, name: a.name, email: a.email, avatarUrl: a.avatarUrl });
       });
 
-      subtasks = rawSubtasks.map((s) => ({ ...s, status: getEffectiveStatus(s), assignees: subtaskAssigneesMap[s.id] ?? [] }));
+      subtasks = rawSubtasks.map((s) => ({ ...s, status: getEffectiveStatus(s), isOverdue: isTaskOverdue(s), assignees: subtaskAssigneesMap[s.id] ?? [] }));
     }
   }
 
-  return { ...task, status: getEffectiveStatus(task), assignees, creator: creator ?? null, subtasks };
+  return { ...task, status: getEffectiveStatus(task), isOverdue: isTaskOverdue(task), assignees, creator: creator ?? null, subtasks };
 };
 
 // ─── Update Task ──────────────────────────────────────────────────────────────
@@ -503,27 +511,29 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
     // 1. Check if task belongs to org
     const [task] = orgId
       ? await tx
-          .select({ projectId: tasks.projectId, status: tasks.status, parentTaskId: tasks.parentTaskId })
+          .select({ projectId: tasks.projectId, status: tasks.status, dueDate: tasks.dueDate, parentTaskId: tasks.parentTaskId })
           .from(tasks)
           .innerJoin(projects, eq(tasks.projectId, projects.id))
           .where(and(eq(tasks.id, id), eq(projects.orgId, orgId), isNull(tasks.deletedAt)))
       : await tx
-          .select({ projectId: tasks.projectId, status: tasks.status, parentTaskId: tasks.parentTaskId })
+          .select({ projectId: tasks.projectId, status: tasks.status, dueDate: tasks.dueDate, parentTaskId: tasks.parentTaskId })
           .from(tasks)
           .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
 
     if (!task) throw new NotFoundException(M.TASK_NOT_FOUND_OR_DENIED);
 
-    // 2. Enforce status transition rules
-    if (data.status && data.status !== task.status) {
-      const allowed = ALLOWED_STATUS_TRANSITIONS[task.status] ?? [];
+    // 2. Enforce status transition rules — use effective status so overdue tasks
+    //    are validated from their visible state, not the raw DB status.
+    const effectiveStatus = getEffectiveStatus(task);
+    if (data.status && data.status !== effectiveStatus) {
+      const allowed = ALLOWED_STATUS_TRANSITIONS[effectiveStatus] ?? [];
       if (!allowed.includes(data.status)) {
-        throw new BadRequestException(M.INVALID_STATUS_TRANSITION(task.status, data.status));
+        throw new BadRequestException(M.INVALID_STATUS_TRANSITION(effectiveStatus, data.status));
       }
     }
 
     // Prevent any status change on a subtask if its parent task is already completed
-    if (data.status && data.status !== task.status && task.parentTaskId) {
+    if (data.status && data.status !== effectiveStatus && task.parentTaskId) {
       const [parentTask] = await tx
         .select({ status: tasks.status })
         .from(tasks)
@@ -644,7 +654,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
         .where(eq(users.id, result.createdBy))
     : [null];
 
-  return { ...result, assignees, creator: creator ?? null };
+  return { ...result, status: getEffectiveStatus(result), isOverdue: isTaskOverdue(result), assignees, creator: creator ?? null };
 };
 
 // ─── Update Task Status Only (Developer + Admin) ─────────────────────────────
@@ -659,13 +669,13 @@ export const updateTaskStatus = async (
     let taskQuery;
     if (user.role === "superadmin") {
       taskQuery = await tx
-        .select({ projectId: tasks.projectId, status: tasks.status, parentTaskId: tasks.parentTaskId })
+        .select({ projectId: tasks.projectId, status: tasks.status, dueDate: tasks.dueDate, parentTaskId: tasks.parentTaskId })
         .from(tasks)
         .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
     } else {
       if (!user.orgId) throw new ForbiddenException(M.NO_ORG_ASSIGNED);
       taskQuery = await tx
-        .select({ projectId: tasks.projectId, status: tasks.status, parentTaskId: tasks.parentTaskId })
+        .select({ projectId: tasks.projectId, status: tasks.status, dueDate: tasks.dueDate, parentTaskId: tasks.parentTaskId })
         .from(tasks)
         .innerJoin(projects, eq(tasks.projectId, projects.id))
         .where(and(eq(tasks.id, id), eq(projects.orgId, user.orgId), isNull(tasks.deletedAt)));
@@ -683,10 +693,12 @@ export const updateTaskStatus = async (
       if (!assigned) throw new ForbiddenException(M.TASK_NOT_ASSIGNED);
     }
 
-    // Enforce transition rules
-    const allowed = ALLOWED_STATUS_TRANSITIONS[task.status] ?? [];
+    // Enforce transition rules — use effective status so an overdue task (whose
+    // DB status may be to_do or in_progress) is validated from its visible state.
+    const effectiveStatus = getEffectiveStatus(task);
+    const allowed = ALLOWED_STATUS_TRANSITIONS[effectiveStatus] ?? [];
     if (!allowed.includes(newStatus as TaskStatus)) {
-      throw new BadRequestException(M.INVALID_STATUS_TRANSITION(task.status, newStatus));
+      throw new BadRequestException(M.INVALID_STATUS_TRANSITION(effectiveStatus, newStatus));
     }
 
     // Only admins and superadmins can reopen a completed task
@@ -771,7 +783,7 @@ export const updateTaskStatus = async (
         .where(eq(users.id, statusResult.createdBy))
     : [null];
 
-  return { ...statusResult, assignees, creator: creator ?? null };
+  return { ...statusResult, status: getEffectiveStatus(statusResult), isOverdue: isTaskOverdue(statusResult), assignees, creator: creator ?? null };
 };
 
 // ─── Soft Delete Task ────────────────────────────────────────────────────────
