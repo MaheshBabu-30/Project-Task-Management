@@ -6,7 +6,9 @@ export const NOTIFICATION_TYPES = [
   "comment_added",
   "comment_mentioned",
   "comment_replied",
+  "member_added",
   "member_removed",
+  "project_assigned",
 ] as const;
 
 export type NotificationType = typeof NOTIFICATION_TYPES[number];

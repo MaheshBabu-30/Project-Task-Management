@@ -19,7 +19,7 @@ export const listNotifications = async (c: AppContext) => {
     order: rawQuery.order,
   });
 
-  const { data, totalRecords } = await getNotifications(user.userId, query);
+  const { data, totalRecords, unreadCount } = await getNotifications(user.userId, query);
 
   const pagination = buildPagination({
     page: query.page as number,
@@ -27,7 +27,7 @@ export const listNotifications = async (c: AppContext) => {
     totalRecords,
   });
 
-  return successResponse(c, { notifications: data, pagination });
+  return successResponse(c, { notifications: data, pagination, unreadCount });
 };
 
 export const markOneRead = async (c: AppContext) => {

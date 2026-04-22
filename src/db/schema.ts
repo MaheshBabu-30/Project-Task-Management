@@ -336,7 +336,9 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "comment_added",
   "comment_mentioned",
   "comment_replied",
+  "member_added",
   "member_removed",
+  "project_assigned",
 ]);
 
 export const notifications = pgTable(

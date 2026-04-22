@@ -7,7 +7,7 @@ import type { PaginationQuery } from "../../types/common.types.js";
 
 interface NotificationQuery extends PaginationQuery {
   unread?: boolean;
-  type?: string;
+  type?: NotificationType;
 }
 
 // ─── Create Notification (internal helper) ────────────────────────────────────
@@ -35,12 +35,12 @@ export const getNotifications = async (
 
   const filters = [eq(notifications.userId, userId)];
   if (unread === true) filters.push(isNull(notifications.readAt));
-  if (type) filters.push(eq(notifications.type, type as NotificationType));
+  if (type) filters.push(eq(notifications.type, type));
 
   const whereCondition = and(...filters);
   const orderDirection = order === "asc" ? asc(notifications.createdAt) : desc(notifications.createdAt);
 
-  const [data, countResult] = await Promise.all([
+  const [data, countResult, unreadResult] = await Promise.all([
     db
       .select()
       .from(notifications)
@@ -49,9 +49,10 @@ export const getNotifications = async (
       .limit(limit)
       .offset(offset),
     db.select({ total: count() }).from(notifications).where(whereCondition),
+    db.select({ total: count() }).from(notifications).where(and(eq(notifications.userId, userId), isNull(notifications.readAt))),
   ]);
 
-  return { data, totalRecords: countResult[0]?.total ?? 0 };
+  return { data, totalRecords: countResult[0]?.total ?? 0, unreadCount: unreadResult[0]?.total ?? 0 };
 };
 
 // ─── Mark One as Read ─────────────────────────────────────────────────────────

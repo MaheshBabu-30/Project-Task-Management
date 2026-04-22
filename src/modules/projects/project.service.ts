@@ -5,6 +5,8 @@ import { deleteS3Object } from "../uploads/upload.service.js";
 import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";
 import type { UserSummary, PaginationQuery } from "../../types/common.types.js";
+import { createNotification } from "../notifications/notification.service.js";
+import { catchError } from "../../utils/logger.js";
 
 interface UpdateProjectData {
   title?: string;
@@ -86,6 +88,21 @@ export const createProject = async (data: {
         .from(users)
         .where(eq(users.id, newProject.createdBy))
     : [null];
+
+  // Notify assigned members (fire-and-forget), skip the creator
+  if (assignedUserIds && assignedUserIds.length > 0) {
+    for (const userId of assignedUserIds) {
+      if (userId === newProject.createdBy) continue;
+      createNotification({
+        userId,
+        type: "project_assigned",
+        title: "You have been added to a project",
+        body: `You have been added to the project: "${newProject.title}"`,
+        entityType: "project",
+        entityId: newProject.id,
+      }).catch(catchError("createProject:notify"));
+    }
+  }
 
   return { ...newProject, members, creator: creator ?? null };
 };
@@ -337,6 +354,16 @@ export const updateProject = async (id: string, data: UpdateProjectData, orgId?:
     if (current?.logoUrl) await deleteS3Object(current.logoUrl);
   }
 
+  // Capture existing members before the transaction for diffing
+  let existingMemberIds: Set<string> = new Set();
+  if (assignedUserIds !== undefined) {
+    const existing = await db
+      .select({ userId: projectMembers.userId })
+      .from(projectMembers)
+      .where(eq(projectMembers.projectId, id));
+    existingMemberIds = new Set(existing.map((m) => m.userId));
+  }
+
   const result = await db.transaction(async (tx) => {
     const [updated] = await tx
       .update(projects)
@@ -387,6 +414,21 @@ export const updateProject = async (id: string, data: UpdateProjectData, orgId?:
         .from(users)
         .where(eq(users.id, result.createdBy))
     : [null];
+
+  // Notify only newly added members (fire-and-forget)
+  if (assignedUserIds !== undefined) {
+    const newlyAdded = assignedUserIds.filter((userId) => !existingMemberIds.has(userId));
+    for (const userId of newlyAdded) {
+      createNotification({
+        userId,
+        type: "project_assigned",
+        title: "You have been added to a project",
+        body: `You have been added to the project: "${result.title}"`,
+        entityType: "project",
+        entityId: id,
+      }).catch(catchError("updateProject:notify"));
+    }
+  }
 
   return { ...result, members, creator: creator ?? null };
 };

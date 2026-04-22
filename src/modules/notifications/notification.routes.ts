@@ -8,7 +8,7 @@ const router = new Hono<AppEnv>();
 router.use(authMiddleware);
 
 router.get("/", listNotifications);
-router.patch("/:id/read", markOneRead);
 router.patch("/read-all", markAllRead);
+router.patch("/:id/read", markOneRead);
 
 export default router;

@@ -101,6 +101,15 @@ export const assignAdmin = async (c: AppContext) => {
     ipAddress: getIp(c),
   }).catch(catchError("org.controller:auditLog"));
 
+  createNotification({
+    userId,
+    type: "member_added",
+    title: "You have been assigned to an organization",
+    body: "You have been assigned as an admin of an organization.",
+    entityType: "organization",
+    entityId: orgId,
+  }).catch(catchError("org.controller:assignAdmin:notify"));
+
   return successResponse(c, result);
 };
 
@@ -130,6 +139,15 @@ export const addDeveloper = async (c: AppContext) => {
     after: { userId },
     ipAddress: getIp(c),
   }).catch(catchError("org.controller:auditLog"));
+
+  createNotification({
+    userId,
+    type: "member_added",
+    title: "You have been added to an organization",
+    body: "You have been added as a developer of an organization.",
+    entityType: "organization",
+    entityId: orgId,
+  }).catch(catchError("org.controller:addDeveloper:notify"));
 
   return successResponse(c, member, 201);
 };
