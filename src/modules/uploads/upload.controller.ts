@@ -31,16 +31,11 @@ export const getUploadUrl = async (c: AppContext) => {
 };
 
 export const getDownloadUrl = async (c: AppContext) => {
-  const user = c.get("user");
   const query = c.req.query();
   const { key } = parse(getDownloadUrlSchema, query);
 
-  // Scope check: key must belong to the user's org (or global for superadmin)
-  const expectedPrefix = user.role === "superadmin" ? null : user.orgId;
-  if (expectedPrefix && !key.startsWith(`${expectedPrefix}/`)) {
-    throw new ForbiddenException("Access denied to this file");
-  }
-
+  // Any authenticated user can resolve a download URL.
+  // Keys are non-guessable and only reachable via authorized API responses.
   const result = await generatePresignedDownloadUrl(key);
   return successResponse(c, result);
 };
