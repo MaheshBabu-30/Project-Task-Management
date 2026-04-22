@@ -3,8 +3,10 @@ import type { AppContext } from "../../types/hono.types.js";
 import { getPresignedUrlSchema, getDownloadUrlSchema } from "./upload.schema.js";
 import { generatePresignedUploadUrl, generatePresignedDownloadUrl } from "./upload.service.js";
 import { successResponse } from "../../utils/response.js";
-import { ForbiddenException } from "../../exceptions/index.js";
+import { ForbiddenException, BadRequestException } from "../../exceptions/index.js";
 import { NO_ORG_ASSIGNED } from "../../constants/appMessages.js";
+
+const MAX_AVATAR_LOGO_SIZE = 5 * 1024 * 1024; // 5MB
 
 export const getUploadUrl = async (c: AppContext) => {
   const user = c.get("user");
@@ -13,6 +15,10 @@ export const getUploadUrl = async (c: AppContext) => {
 
   if (!user.orgId && user.role !== "superadmin") {
     throw new ForbiddenException(NO_ORG_ASSIGNED);
+  }
+
+  if ((data.folder === "avatars" || data.folder === "logos") && data.fileSize > MAX_AVATAR_LOGO_SIZE) {
+    throw new BadRequestException("fileSize must not exceed 5MB for avatars and logos");
   }
 
   const result = await generatePresignedUploadUrl({
