@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import { db } from "../../config/db.js";
 import { users, orgMembers, organizations, projects, projectMembers, taskAssignees, tasks } from "../../db/schema.js";
 import { eq, ilike, and, asc, desc, isNull, inArray, notInArray, count, sql } from "drizzle-orm";
+import { deleteS3Object } from "../uploads/upload.service.js";
 import { BadRequestException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
 import {
   ADMIN_DEVELOPER_ONLY, EMAIL_ALREADY_REGISTERED, USER_CREATE_FAILED, ADMIN_NO_ORG,
@@ -348,6 +349,12 @@ interface ProfileUpdate {
 }
 
 export const updateUserProfile = async (id: string, data: ProfileUpdate) => {
+  // If avatarUrl is being replaced, delete the old file from B2
+  if (data.avatarUrl !== undefined) {
+    const [current] = await db.select({ avatarUrl: users.avatarUrl }).from(users).where(eq(users.id, id));
+    if (current?.avatarUrl) await deleteS3Object(current.avatarUrl);
+  }
+
   const [updated] = await db
     .update(users)
     .set({ ...data, updatedAt: new Date() })

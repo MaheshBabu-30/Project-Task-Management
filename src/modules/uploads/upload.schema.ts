@@ -1,4 +1,4 @@
-import { object, string, picklist, pipe, minLength, maxLength, check, regex } from "valibot";
+import { object, string, number, picklist, pipe, minLength, maxLength, minValue, check, regex } from "valibot";
 
 const IMAGE_MIME_TYPES = [
   "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml",
@@ -14,11 +14,15 @@ const ALL_ALLOWED_MIME_TYPES = [
   "application/zip", "application/x-zip-compressed",
 ] as const;
 
+const MAX_AVATAR_LOGO_SIZE = 5 * 1024 * 1024;   // 5MB
+const MAX_ATTACHMENT_SIZE  = 10 * 1024 * 1024;  // 10MB
+
 export const getPresignedUrlSchema = pipe(
   object({
     fileName: pipe(string(), minLength(1, "fileName is required"), maxLength(255, "fileName must be at most 255 characters")),
     contentType: picklist(ALL_ALLOWED_MIME_TYPES, "Unsupported content type"),
     folder: picklist(["avatars", "logos", "attachments"], "folder must be avatars, logos, or attachments"),
+    fileSize: pipe(number(), minValue(1, "fileSize must be greater than 0")),
   }),
   check(
     (val) => {
@@ -28,6 +32,13 @@ export const getPresignedUrlSchema = pipe(
       return true;
     },
     "Only image files (jpeg, png, gif, webp, svg) are allowed for avatars and logos"
+  ),
+  check(
+    (val) => {
+      if (val.folder === "avatars" || val.folder === "logos") return val.fileSize <= MAX_AVATAR_LOGO_SIZE;
+      return val.fileSize <= MAX_ATTACHMENT_SIZE;
+    },
+    "File size exceeds the allowed limit (avatars/logos: 5MB, attachments: 10MB)"
   )
 );
 

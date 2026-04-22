@@ -1,6 +1,7 @@
 import { db } from "../../config/db.js";
 import { projects, tasks, projectMembers, orgMembers, organizations, users, taskAssignees } from "../../db/schema.js";
 import { eq, ilike, and, asc, desc, isNull, isNotNull, inArray, notInArray, count, sql } from "drizzle-orm";
+import { deleteS3Object } from "../uploads/upload.service.js";
 import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";
 import type { UserSummary, PaginationQuery } from "../../types/common.types.js";
@@ -329,6 +330,12 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
 
 export const updateProject = async (id: string, data: UpdateProjectData, orgId?: string) => {
   const { assignedUserIds, ...projectData } = data;
+
+  // If logoUrl is being replaced, delete the old file from B2
+  if (data.logoUrl !== undefined) {
+    const [current] = await db.select({ logoUrl: projects.logoUrl }).from(projects).where(eq(projects.id, id));
+    if (current?.logoUrl) await deleteS3Object(current.logoUrl);
+  }
 
   const result = await db.transaction(async (tx) => {
     const [updated] = await tx
