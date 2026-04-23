@@ -387,6 +387,7 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
     .select({
       id: tasks.id,
       projectId: tasks.projectId,
+      projectName: projects.name,
       orgId: projects.orgId,
       orgName: organizations.name,
       parentTaskId: tasks.parentTaskId,
