@@ -6,5 +6,4 @@ export interface TokenPayload {
   role: UserRole;
   status: UserStatus;
   orgId?: string;
-  orgName?: string;
 }

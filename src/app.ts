@@ -13,6 +13,7 @@ import attachmentRoutes from "./modules/attachments/attachment.routes.js";
 import notificationRoutes from "./modules/notifications/notification.routes.js";
 import auditLogRoutes from "./modules/audit-logs/audit-log.routes.js";
 import { env } from "./config/env.js";
+import { logger } from "./utils/logger.js";
 import type { AppEnv } from "./types/hono.types.js";
 
 const app = new Hono<AppEnv>();
@@ -29,6 +30,12 @@ app.use("*", cors({
   allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowHeaders: ["Authorization", "Content-Type"],
 }));
+
+app.use("*", async (c, next) => {
+  const start = Date.now();
+  await next();
+  logger.info(`${c.req.method} ${c.req.path} ${c.res.status} ${Date.now() - start}ms`, "http");
+});
 
 app.get("/", (c) => c.json({ status: "OK", message: "Task Management API is running" }));
 app.get("/health", (c) => c.json({ status: "OK" }));

@@ -2,7 +2,7 @@ import { db } from "../config/db.js";
 import { tasks, taskAssignees } from "../db/schema.js";
 import { and, isNull, lt, notInArray, inArray } from "drizzle-orm";
 import { createNotification } from "../modules/notifications/notification.service.js";
-import { catchError } from "../utils/logger.js";
+import { logger, catchError } from "../utils/logger.js";
 
 /**
  * Marks tasks as overdue if their due date has passed and they are not
@@ -28,7 +28,7 @@ export const markOverdueTasks = async () => {
     )
     .returning({ id: tasks.id, title: tasks.title });
 
-  console.log(`[mark-overdue] Marked ${result.length} task(s) as overdue.`);
+  logger.info(`Marked ${result.length} task(s) as overdue`, "mark-overdue");
 
   // Notify assignees of each overdue task (fire-and-forget)
   if (result.length > 0) {

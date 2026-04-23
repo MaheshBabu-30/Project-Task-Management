@@ -2,6 +2,7 @@ import { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sd
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, B2_BUCKET_NAME } from "../../config/s3.js";
 import { InternalServerException } from "../../exceptions/index.js";
+import { logger } from "../../utils/logger.js";
 import { BUCKET_NOT_CONFIGURED, UPLOAD_URL_FAILED, DOWNLOAD_URL_FAILED } from "../../constants/appMessages.js";
 
 export const generatePresignedUploadUrl = async (params: {
@@ -28,7 +29,7 @@ export const generatePresignedUploadUrl = async (params: {
     const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 600 });
     return { presignedUrl, key };
   } catch (error) {
-    console.error("S3 Presigned upload URL error:", error);
+    logger.error("S3 presigned upload URL error", error, "upload");
     throw new InternalServerException(UPLOAD_URL_FAILED);
   }
 };
@@ -39,8 +40,7 @@ export const deleteS3Object = async (s3Key: string) => {
     const command = new DeleteObjectCommand({ Bucket: B2_BUCKET_NAME, Key: s3Key });
     await s3Client.send(command);
   } catch (error) {
-    // Log but don't throw — deletion failure should not block the update
-    console.error("S3 delete error:", error);
+    logger.error("S3 delete error", error, "upload");
   }
 };
 
@@ -56,7 +56,7 @@ export const generatePresignedDownloadUrl = async (s3Key: string) => {
     const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
     return { url, expiresIn: 3600 };
   } catch (error) {
-    console.error("S3 Presigned download URL error:", error);
+    logger.error("S3 presigned download URL error", error, "upload");
     throw new InternalServerException(DOWNLOAD_URL_FAILED);
   }
 };

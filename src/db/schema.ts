@@ -9,6 +9,7 @@ import {
   unique,
   index,
   integer,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -213,7 +214,7 @@ export const tasks = pgTable(
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
-    parentTaskId: uuid("parent_task_id"), // self-reference added below via relations
+    parentTaskId: uuid("parent_task_id").references((): AnyPgColumn => tasks.id, { onDelete: "cascade" }),
     title: varchar("title", { length: 300 }).notNull(),
     description: text("description"),
     status: taskStatusEnum("status").notNull().default("to_do"),
@@ -271,7 +272,7 @@ export const comments = pgTable(
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
     authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
-    parentCommentId: uuid("parent_comment_id"),
+    parentCommentId: uuid("parent_comment_id").references((): AnyPgColumn => comments.id, { onDelete: "cascade" }),
     body: text("body").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

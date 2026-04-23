@@ -1,17 +1,24 @@
 import { env } from "../config/env.js";
+import { logger } from "./logger.js";
 
-export const   sendOtpEmail = async (email: string, otp: string) => {
+export const sendOtpEmail = async (email: string, otp: string) => {
   const apiKey = env.BREVO_API_KEY;
+  const senderEmail = env.BREVO_SENDER_EMAIL;
 
   if (!apiKey) {
-    console.error("BREVO_API_KEY is not set in environment.");
+    logger.warn("BREVO_API_KEY is not set — email sending disabled", "mail");
+    return false;
+  }
+
+  if (!senderEmail) {
+    logger.warn("BREVO_SENDER_EMAIL is not set — email sending disabled", "mail");
     return false;
   }
 
   const payload = {
     sender: {
       name: "Task Management System",
-      email: env.BREVO_SENDER_EMAIL
+      email: senderEmail
     },
     to: [
       {
@@ -47,13 +54,13 @@ export const   sendOtpEmail = async (email: string, otp: string) => {
 
     if (!response.ok) {
       const errorData = await response.json();
-      console.error("Brevo API Error:", errorData);
+      logger.error("Brevo API error", errorData, "mail");
       return false;
     }
 
     return true;
   } catch (error) {
-    console.error("Failed to send OTP email:", error);
+    logger.error("Failed to send OTP email", error, "mail");
     return false;
   }
 };

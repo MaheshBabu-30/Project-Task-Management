@@ -2,7 +2,7 @@ import { db } from "../config/db.js";
 import { tasks, taskAssignees } from "../db/schema.js";
 import { and, isNull, eq, inArray, notInArray } from "drizzle-orm";
 import { createNotification } from "../modules/notifications/notification.service.js";
-import { catchError } from "../utils/logger.js";
+import { logger, catchError } from "../utils/logger.js";
 
 /**
  * Notifies assignees of tasks that are due within the next 24 hours.
@@ -29,11 +29,11 @@ export const notifyDueSoonTasks = async () => {
     );
 
   if (dueSoonTasks.length === 0) {
-    console.log("[notify-due-soon] No tasks due tomorrow.");
+    logger.info("No tasks due tomorrow", "notify-due-soon");
     return 0;
   }
 
-  console.log(`[notify-due-soon] ${dueSoonTasks.length} task(s) due tomorrow.`);
+  logger.info(`${dueSoonTasks.length} task(s) due tomorrow`, "notify-due-soon");
 
   const taskIds = dueSoonTasks.map((t) => t.id);
   const taskTitleMap = Object.fromEntries(dueSoonTasks.map((t) => [t.id, t.title]));

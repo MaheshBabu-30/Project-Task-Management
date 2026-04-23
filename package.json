@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "build": "tsc"
+    "build": "tsc",
+    "seed": "tsx scripts/seeding/seed.ts",
+    "seed:superadmin": "tsx scripts/seeding/seed-superadmin.ts",
+    "migrate": "tsx scripts/migrate.ts"
   },
   "keywords": [],
   "author": "",

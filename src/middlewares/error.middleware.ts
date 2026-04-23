@@ -72,9 +72,7 @@ export const errorHandler: ErrorHandler = (err, c) => {
     return c.json(body, HttpStatus.BAD_REQUEST);
   }
 
-  // Catch-all 500 — log both structured JSON and raw error so every log viewer shows it
   logger.error("Unhandled error", err, "errorHandler");
-  console.error("[errorHandler] raw error:", err);
   const body: IRespWithMessage = {
     success: false,
     statusCode: HttpStatus.INTERNAL_SERVER_ERROR,

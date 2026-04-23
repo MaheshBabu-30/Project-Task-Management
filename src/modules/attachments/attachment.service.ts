@@ -2,6 +2,7 @@ import { db } from "../../config/db.js";
 import { attachments, tasks, projects, taskAssignees, users } from "../../db/schema.js";
 import { eq, and, isNull, ilike, asc, desc, count, inArray } from "drizzle-orm";
 import { ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
+import { logger } from "../../utils/logger.js";
 import { TASK_NOT_FOUND, NO_ORG_ASSIGNED, ACCESS_DENIED, TASK_NOT_ASSIGNED, ATTACHMENT_NOT_FOUND, ATTACHMENT_DELETE_OWN } from "../../constants/appMessages.js";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { s3Client, B2_BUCKET_NAME } from "../../config/s3.js";
@@ -163,7 +164,7 @@ export const removeAttachment = async (attachmentId: string, user: User) => {
         Key: attachment.s3Key,
       }));
     } catch (err) {
-      console.error("[attachment] Failed to delete S3 object:", err);
+      logger.error("Failed to delete S3 object", err, "attachment");
     }
   }
 

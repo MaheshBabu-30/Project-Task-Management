@@ -19,7 +19,7 @@ export const env = {
   REFRESH_TOKEN_SECRET:       process.env.REFRESH_TOKEN_SECRET as string,
   REFRESH_TOKEN_EXPIRES_IN:   process.env.REFRESH_TOKEN_EXPIRES_IN || "7d",
   BREVO_API_KEY:              process.env.BREVO_API_KEY,
-  BREVO_SENDER_EMAIL:         process.env.BREVO_SENDER_EMAIL || "maheshbabubaddipudi@gmail.com",
+  BREVO_SENDER_EMAIL:         process.env.BREVO_SENDER_EMAIL,
   ALLOWED_ORIGINS:            process.env.ALLOWED_ORIGINS || "*",
   OTP_SECRET:                 process.env.OTP_SECRET as string,
   B2_ENDPOINT:                process.env.B2_ENDPOINT,

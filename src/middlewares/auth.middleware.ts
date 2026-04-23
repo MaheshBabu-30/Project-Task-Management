@@ -6,6 +6,34 @@ import type { Next } from "hono";
 import type { AppEnv } from "../types/hono.types.js";
 import type { Context } from "hono";
 
+// Short-lived cache to avoid a DB round-trip on every request.
+// TTL of 30s means a deactivated user loses access within half a minute.
+const USER_STATUS_TTL_MS = 30_000;
+const statusCache = new Map<string, { status: "active" | "inactive"; expiresAt: number }>();
+
+// Purge stale entries every 5 minutes to prevent unbounded memory growth.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of statusCache) {
+    if (value.expiresAt <= now) statusCache.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
+
+const getCachedStatus = async (userId: string): Promise<"active" | "inactive" | null> => {
+  const now = Date.now();
+  const cached = statusCache.get(userId);
+  if (cached && cached.expiresAt > now) return cached.status;
+
+  const [row] = await db
+    .select({ status: users.status })
+    .from(users)
+    .where(and(eq(users.id, userId), isNull(users.deletedAt)));
+
+  if (!row) return null;
+  statusCache.set(userId, { status: row.status, expiresAt: now + USER_STATUS_TTL_MS });
+  return row.status;
+};
+
 export const authMiddleware = async (c: Context<AppEnv>, next: Next): Promise<Response | void> => {
   const authHeader = c.req.header("authorization");
 
@@ -25,20 +53,15 @@ export const authMiddleware = async (c: Context<AppEnv>, next: Next): Promise<Re
     return c.json({ message: "Invalid or expired token" }, 401);
   }
 
-  // Always verify status against the DB — JWT payload can be stale for up to
-  // the token TTL, meaning a deactivated/deleted user would retain access.
-  let user: { status: "active" | "inactive" } | undefined;
+  let status: "active" | "inactive" | null;
   try {
-    const [row] = await db
-      .select({ status: users.status })
-      .from(users)
-      .where(and(eq(users.id, payload.userId), isNull(users.deletedAt)));
-    user = row;
+    status = await getCachedStatus(payload.userId);
   } catch {
     return c.json({ message: "Authentication service unavailable" }, 503);
   }
 
-  if (!user || user.status === "inactive") {
+  if (!status || status === "inactive") {
+    statusCache.delete(payload.userId);
     return c.json({ message: "User account is deactivated. Access denied." }, 403);
   }
 

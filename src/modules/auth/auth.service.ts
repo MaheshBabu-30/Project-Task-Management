@@ -51,7 +51,10 @@ const buildTokenPayload = async (user: { id: string; role: "superadmin" | "admin
     orgName = membership?.orgName;
   }
 
-  return { userId: user.id, role: user.role, status: user.status, ...(orgId ? { orgId } : {}), ...(orgName ? { orgName } : {}) };
+  // orgName is intentionally excluded from the JWT — it can change and tokens
+  // are long-lived, so stale names in tokens cause subtle bugs.
+  const tokenPayload = { userId: user.id, role: user.role, status: user.status, ...(orgId ? { orgId } : {}) };
+  return { tokenPayload, orgName };
 };
 
 // ─── Session Management ───────────────────────────────────────────────────────
@@ -81,13 +84,13 @@ export const loginUser = async ({ email, password }: { email: string; password: 
 
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
 
-  const payload = await buildTokenPayload(user);
-  const accessToken = generateToken(payload);
-  const refreshToken = generateRefreshToken(payload);
+  const { tokenPayload, orgName } = await buildTokenPayload(user);
+  const accessToken = generateToken(tokenPayload);
+  const refreshToken = generateRefreshToken(tokenPayload);
   await createSession(user.id, refreshToken);
 
   return {
-    user: { id: user.id, name: user.name, email: user.email, role: user.role, orgId: payload.orgId, orgName: payload.orgName },
+    user: { id: user.id, name: user.name, email: user.email, role: user.role, orgId: tokenPayload.orgId, orgName },
     tokens: { accessToken, refreshToken },
   };
 };
@@ -122,7 +125,7 @@ export const refreshSession = async (token: string) => {
   if (!user) throw new NotFoundException(USER_NOT_FOUND);
   if (user.status === "inactive") throw new ForbiddenException(ACCOUNT_DEACTIVATED_SHORT);
 
-  const newPayload = await buildTokenPayload(user);
+  const { tokenPayload: newPayload } = await buildTokenPayload(user);
   const accessToken = generateToken(newPayload);
   const newRefreshToken = generateRefreshToken(newPayload);
 
@@ -151,7 +154,7 @@ export const requestOtp = async (email: string) => {
   const expiresAt = new Date();
   expiresAt.setMinutes(expiresAt.getMinutes() + 5);
 
-  await db.insert(otps).values({ email, otpHash, expiresAt });
+  await db.insert(otps).values({ email, userId: user.id, otpHash, expiresAt });
 
   const sent = await sendOtpEmail(email, otp);
   if (!sent) throw new InternalServerException(EMAIL_SEND_FAILED);
@@ -214,13 +217,13 @@ export const verifyOtp = async (email: string, otp: string) => {
 
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
 
-  const payload = await buildTokenPayload(user);
-  const accessToken = generateToken(payload);
-  const refreshToken = generateRefreshToken(payload);
+  const { tokenPayload, orgName } = await buildTokenPayload(user);
+  const accessToken = generateToken(tokenPayload);
+  const refreshToken = generateRefreshToken(tokenPayload);
   await createSession(user.id, refreshToken);
 
   return {
-    user: { id: user.id, name: user.name, email: user.email, role: user.role, orgId: payload.orgId, orgName: payload.orgName },
+    user: { id: user.id, name: user.name, email: user.email, role: user.role, orgId: tokenPayload.orgId, orgName },
     tokens: { accessToken, refreshToken },
   };
 };
