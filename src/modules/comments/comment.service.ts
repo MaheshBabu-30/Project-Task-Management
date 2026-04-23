@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { comments, commentMentions, tasks, projects, taskAssignees, orgMembers, users } from "../../db/schema.js";
+import { comments, commentMentions, tasks, projects, taskAssignees, orgMembers, users } from "../../db/schema/index.js";
 import { eq, and, isNull, isNotNull, asc, desc, count, inArray } from "drizzle-orm";
 import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import { TASK_NOT_FOUND, NO_ORG_ASSIGNED, ACCESS_DENIED, TASK_NOT_ASSIGNED, COMMENT_NOT_FOUND, COMMENT_EDIT_OWN, COMMENT_DELETE_OWN } from "../../constants/appMessages.js";

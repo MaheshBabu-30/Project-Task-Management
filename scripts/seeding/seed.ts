@@ -12,7 +12,7 @@ import {
   attachments,
   comments,
   commentMentions,
-} from "../../src/db/schema.js";
+} from "../../src/db/schema/index.js";
 import { and, eq, isNull } from "drizzle-orm";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

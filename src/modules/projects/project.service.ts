@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { projects, tasks, projectMembers, orgMembers, organizations, users, taskAssignees } from "../../db/schema.js";
+import { projects, tasks, projectMembers, orgMembers, organizations, users, taskAssignees } from "../../db/schema/index.js";
 import { eq, ilike, and, asc, desc, isNull, isNotNull, inArray, notInArray, count, sql } from "drizzle-orm";
 import { deleteS3Object } from "../uploads/upload.service.js";
 import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";

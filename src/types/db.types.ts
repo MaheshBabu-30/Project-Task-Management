@@ -13,7 +13,7 @@ import type {
   attachments,
   notifications,
   auditLogs,
-} from "../db/schema.js";
+} from "../db/schema/index.js";
 
 // ─── Table Map ────────────────────────────────────────────────────────────────
 

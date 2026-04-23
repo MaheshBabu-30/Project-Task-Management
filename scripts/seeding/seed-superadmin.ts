@@ -2,7 +2,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 import "dotenv/config";
 import bcrypt from "bcrypt";
 import { db } from "../../src/config/db.js";
-import { users } from "../../src/db/schema.js";
+import { users } from "../../src/db/schema/index.js";
 import { eq } from "drizzle-orm";
 
 const SEED_EMAIL = "superadmin@taskmiller.com";

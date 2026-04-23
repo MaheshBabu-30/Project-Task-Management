@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import { db } from "../../config/db.js";
-import { users, orgMembers, organizations, projects, projectMembers, taskAssignees, tasks } from "../../db/schema.js";
+import { users, orgMembers, organizations, projects, projectMembers, taskAssignees, tasks } from "../../db/schema/index.js";
 import { eq, ilike, and, asc, desc, isNull, inArray, notInArray, count, sql } from "drizzle-orm";
 import { deleteS3Object } from "../uploads/upload.service.js";
 import { BadRequestException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";

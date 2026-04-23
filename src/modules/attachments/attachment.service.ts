@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { attachments, tasks, projects, taskAssignees, users } from "../../db/schema.js";
+import { attachments, tasks, projects, taskAssignees, users } from "../../db/schema/index.js";
 import { eq, and, isNull, ilike, asc, desc, count, inArray } from "drizzle-orm";
 import { ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import { logger } from "../../utils/logger.js";

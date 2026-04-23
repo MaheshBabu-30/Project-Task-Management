@@ -1,5 +1,5 @@
 import { db } from "../config/db.js";
-import { tasks, taskAssignees } from "../db/schema.js";
+import { tasks, taskAssignees } from "../db/schema/index.js";
 import { and, isNull, eq, inArray, notInArray } from "drizzle-orm";
 import { createNotification } from "../modules/notifications/notification.service.js";
 import { logger, catchError } from "../utils/logger.js";

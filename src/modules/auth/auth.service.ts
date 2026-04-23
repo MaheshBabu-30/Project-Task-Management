@@ -1,7 +1,7 @@
 import bcrypt from "bcrypt";
 import { createHash, createHmac, randomInt } from "crypto";
 import { db } from "../../config/db.js";
-import { users, sessions, otps, orgMembers, organizations } from "../../db/schema.js";
+import { users, sessions, otps, orgMembers, organizations } from "../../db/schema/index.js";
 import { eq, and, desc, isNull } from "drizzle-orm";
 import { generateToken, generateRefreshToken, verifyRefreshToken } from "../../utils/jwt.js";
 import {

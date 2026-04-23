@@ -1,4 +1,4 @@
-import { taskStatusEnum, taskPriorityEnum } from "../db/schema.js";
+import { taskStatusEnum, taskPriorityEnum } from "../db/schema/index.js";
 import type { TaskStatus } from "../types/task.types.js";
 
 // Derived directly from the DB enum — single source of truth

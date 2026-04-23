@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { auditLogs, users, organizations } from "../../db/schema.js";
+import { auditLogs, users, organizations } from "../../db/schema/index.js";
 import { eq, and, gte, lte, ilike, asc, desc, count, inArray, type SQL } from "drizzle-orm";
 import type { PaginationQuery } from "../../types/common.types.js";
 
