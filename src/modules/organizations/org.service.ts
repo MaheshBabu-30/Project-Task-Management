@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { organizations, orgMembers, users, projects, projectMembers, taskAssignees, tasks, sessions } from "../../db/schema/index.js";
+import { organizations, orgMembers, users, projects, projectMembers, taskAssignees, tasks, sessions, comments } from "../../db/schema/index.js";
 import { eq, and, isNull, inArray, ilike, asc, desc, count } from "drizzle-orm";
 import { BadRequestException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
 import { ORG_NOT_FOUND, ADMIN_ROLE_REQUIRED, ADMIN_ALREADY_IN_ORG, SLUG_TAKEN, USER_NOT_FOUND } from "../../constants/appMessages.js";
@@ -87,6 +87,18 @@ export const softDeleteOrg = async (orgId: string, deletedBy: string) => {
     const projectIds = orgProjects.map((p) => p.id);
 
     if (projectIds.length > 0) {
+      const orgTaskIds = await tx
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(and(inArray(tasks.projectId, projectIds), isNull(tasks.deletedAt)));
+
+      if (orgTaskIds.length > 0) {
+        await tx
+          .update(comments)
+          .set({ deletedAt: now })
+          .where(and(inArray(comments.taskId, orgTaskIds.map((t) => t.id)), isNull(comments.deletedAt)));
+      }
+
       await tx.update(tasks).set({ deletedAt: now }).where(and(inArray(tasks.projectId, projectIds), isNull(tasks.deletedAt)));
       await tx.update(projects).set({ deletedAt: now }).where(eq(projects.orgId, orgId));
     }

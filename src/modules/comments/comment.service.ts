@@ -68,22 +68,13 @@ const validateMentionedUsers = async (
 
   if (!project) return;
 
-  // Valid: org members (any role) + superadmins
-  const [orgMemberRows, superadmins] = await Promise.all([
-    db
-      .select({ userId: orgMembers.userId })
-      .from(orgMembers)
-      .where(and(eq(orgMembers.orgId, project.orgId), inArray(orgMembers.userId, mentionedIds))),
-    db
-      .select({ id: users.id })
-      .from(users)
-      .where(and(eq(users.role, "superadmin"), inArray(users.id, mentionedIds))),
-  ]);
+  // Valid: org members only — superadmins are platform-internal and must not be cross-tenant reachable
+  const orgMemberRows = await db
+    .select({ userId: orgMembers.userId })
+    .from(orgMembers)
+    .where(and(eq(orgMembers.orgId, project.orgId), inArray(orgMembers.userId, mentionedIds)));
 
-  const validIds = new Set([
-    ...orgMemberRows.map((r) => r.userId),
-    ...superadmins.map((r) => r.id),
-  ]);
+  const validIds = new Set(orgMemberRows.map((r) => r.userId));
 
   const invalid = mentionedIds.filter((id) => !validIds.has(id));
   if (invalid.length > 0) {
@@ -178,7 +169,6 @@ export const getComments = async (
             commentId: commentMentions.commentId,
             id: users.id,
             name: users.name,
-            email: users.email,
             avatarUrl: users.avatarUrl,
           })
           .from(commentMentions)
@@ -187,7 +177,7 @@ export const getComments = async (
           .then((rows) => {
             rows.forEach((r) => {
               if (!mentionsMap[r.commentId]) mentionsMap[r.commentId] = [];
-              mentionsMap[r.commentId]!.push({ id: r.id, name: r.name, email: r.email, avatarUrl: r.avatarUrl });
+              mentionsMap[r.commentId]!.push({ id: r.id, name: r.name, avatarUrl: r.avatarUrl });
             });
           })
       : Promise.resolve(),
@@ -297,13 +287,13 @@ export const createComment = async (
   // Fetch mentions for response
   const mentions: UserSummary[] = mentionedIds.length > 0
     ? await db
-        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+        .select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl })
         .from(users)
         .where(inArray(users.id, mentionedIds))
     : [];
 
   const [author] = await db
-    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+    .select({ id: users.id, name: users.name, avatarUrl: users.avatarUrl })
     .from(users)
     .where(eq(users.id, user.userId));
 

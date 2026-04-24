@@ -69,7 +69,7 @@ export const markNotificationRead = async (notificationId: string, userId: strin
   const [updated] = await db
     .update(notifications)
     .set({ readAt: new Date() })
-    .where(eq(notifications.id, notificationId))
+    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)))
     .returning();
 
   return updated;

@@ -1,7 +1,7 @@
 export type UserSummary = {
   id: string;
   name: string | null;
-  email: string;
+  email?: string | null;
   avatarUrl: string | null;
 };
 
