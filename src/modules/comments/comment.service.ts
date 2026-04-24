@@ -310,9 +310,15 @@ export const updateComment = async (commentId: string, body: string, user: User)
 
   if (!comment) throw new NotFoundException(COMMENT_NOT_FOUND);
 
-  await verifyTaskAccess(comment.taskId, user);
+  const task = await verifyTaskAccess(comment.taskId, user);
 
   if (comment.authorId !== user.userId) throw new ForbiddenException(COMMENT_EDIT_OWN);
+
+  // Re-parse mentions from updated body and validate before writing anything
+  const mentionedIds = parseMentionIds(body);
+  if (mentionedIds.length > 0) {
+    await validateMentionedUsers(mentionedIds, task.projectId);
+  }
 
   const [updated] = await db
     .update(comments)
@@ -321,6 +327,27 @@ export const updateComment = async (commentId: string, body: string, user: User)
     .returning();
 
   if (!updated) throw new NotFoundException(COMMENT_NOT_FOUND);
+
+  // Re-sync mentions: wipe old rows, insert new ones, notify newly mentioned users
+  await db.delete(commentMentions).where(eq(commentMentions.commentId, commentId));
+  if (mentionedIds.length > 0) {
+    db.insert(commentMentions)
+      .values(mentionedIds.map((userId) => ({ commentId, userId })))
+      .then(() => {
+        for (const userId of mentionedIds) {
+          if (userId === user.userId) continue;
+          createNotification({
+            userId,
+            type: "comment_mentioned",
+            title: "You were mentioned in a comment",
+            body: `${body.slice(0, 100)}${body.length > 100 ? "..." : ""}`,
+            entityType: "task",
+            entityId: comment.taskId,
+          }).catch(catchError("updateComment:mentionNotify"));
+        }
+      })
+      .catch(catchError("updateComment:resyncMentions"));
+  }
 
   const [author] = updated.authorId
     ? await db

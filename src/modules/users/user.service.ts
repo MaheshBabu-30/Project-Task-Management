@@ -349,10 +349,11 @@ interface ProfileUpdate {
 }
 
 export const updateUserProfile = async (id: string, data: ProfileUpdate) => {
-  // If avatarUrl is being replaced, delete the old file from B2
+  // Capture old avatar URL before updating — we delete from S3 only after DB succeeds
+  let oldAvatarUrl: string | null = null;
   if (data.avatarUrl !== undefined) {
     const [current] = await db.select({ avatarUrl: users.avatarUrl }).from(users).where(eq(users.id, id));
-    if (current?.avatarUrl) await deleteS3Object(current.avatarUrl);
+    oldAvatarUrl = current?.avatarUrl ?? null;
   }
 
   const [updated] = await db
@@ -364,6 +365,11 @@ export const updateUserProfile = async (id: string, data: ProfileUpdate) => {
       phone: users.phone, avatarUrl: users.avatarUrl, lastLoginAt: users.lastLoginAt,
       createdAt: users.createdAt, updatedAt: users.updatedAt,
     });
+
+  // Delete old avatar from S3 only after DB update confirmed — prevents data loss on DB failure
+  if (oldAvatarUrl && oldAvatarUrl !== data.avatarUrl) {
+    await deleteS3Object(oldAvatarUrl);
+  }
 
   return updated;
 };

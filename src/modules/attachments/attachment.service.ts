@@ -157,6 +157,10 @@ export const removeAttachment = async (attachmentId: string, user: User) => {
     throw new ForbiddenException(ATTACHMENT_DELETE_OWN);
   }
 
+  // Delete DB record first — if S3 deletion fails afterwards, the record is still gone
+  // (orphaned S3 file is recoverable; a live DB record pointing to a deleted S3 object is not)
+  await db.delete(attachments).where(eq(attachments.id, attachmentId));
+
   if (B2_BUCKET_NAME) {
     try {
       await s3Client.send(new DeleteObjectCommand({
@@ -167,8 +171,6 @@ export const removeAttachment = async (attachmentId: string, user: User) => {
       logger.error("Failed to delete S3 object", err, "attachment");
     }
   }
-
-  await db.delete(attachments).where(eq(attachments.id, attachmentId));
 
   return { message: "Attachment deleted successfully" };
 };

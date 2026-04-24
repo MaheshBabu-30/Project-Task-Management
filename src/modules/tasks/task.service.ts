@@ -512,7 +512,7 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
 export const updateTask = async (id: string, data: UpdateTaskData, orgId?: string) => {
   const { assignedUserIds, ...updateData } = data;
 
-  const result = await db.transaction(async (tx) => {
+  const { updated: result, prevStatus } = await db.transaction(async (tx) => {
     // 1. Check if task belongs to org
     const [task] = orgId
       ? await tx
@@ -637,7 +637,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
       await updateProjectStatusIfComplete(tx, updated.projectId);
     }
 
-    return updated;
+    return { updated, prevStatus: task.status };
   });
 
   // Fetch assignees with user info to return consistent shape
@@ -655,7 +655,8 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
     : [null];
 
   // Notify assignees when a completed task is reopened (fire-and-forget)
-  if (data.status === "to_do") {
+  // Only fire when there is an actual transition TO to_do — not a no-op same-status update
+  if (data.status === "to_do" && prevStatus !== "to_do") {
     for (const assignee of assignees) {
       createNotification({
         userId: assignee.id,
