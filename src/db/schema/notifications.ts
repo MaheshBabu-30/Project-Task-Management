@@ -6,6 +6,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "task_due_soon",
   "task_overdue",
   "task_completed",
+  "task_reopened",
   "comment_added",
   "comment_mentioned",
   "comment_replied",

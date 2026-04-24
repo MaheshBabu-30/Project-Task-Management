@@ -6,8 +6,8 @@ import { logger, catchError } from "../utils/logger.js";
 
 /**
  * Marks tasks as overdue if their due date has passed and they are not
- * completed or already overdue. on_hold tasks are included — if a paused
- * task crosses its due date it becomes overdue immediately.
+ * completed, already overdue, or on_hold. Paused tasks retain their status
+ * until manually resumed — the due date warning is surfaced by the frontend.
  *
  * Run this on a cron schedule — e.g. every hour.
  * No user or admin can manually set status to "overdue" via API.
@@ -23,7 +23,7 @@ export const markOverdueTasks = async () => {
       and(
         isNull(tasks.deletedAt),
         lt(tasks.dueDate, todayStr),
-        notInArray(tasks.status, ["completed", "overdue"])
+        notInArray(tasks.status, ["completed", "overdue", "on_hold"])
       )
     )
     .returning({ id: tasks.id, title: tasks.title });

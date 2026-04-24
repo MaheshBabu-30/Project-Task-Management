@@ -45,6 +45,15 @@ type TaskUpdatePayload = {
 
 
 
+// ─── Helper: Validate Status Transition ──────────────────────────────────────
+
+const assertValidTransition = (from: TaskStatus, to: TaskStatus) => {
+  const allowed = ALLOWED_STATUS_TRANSITIONS[from] ?? [];
+  if (!allowed.includes(to)) {
+    throw new BadRequestException(M.INVALID_STATUS_TRANSITION(from, to));
+  }
+};
+
 // ─── Helper: Update Project Status ───────────────────────────────────────────
 
 const updateProjectStatusIfComplete = async (tx: DbTransaction, projectId: string) => {
@@ -503,10 +512,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
 
     // 2. Enforce status transition rules
     if (data.status && data.status !== task.status) {
-      const allowed = ALLOWED_STATUS_TRANSITIONS[task.status] ?? [];
-      if (!allowed.includes(data.status)) {
-        throw new BadRequestException(M.INVALID_STATUS_TRANSITION(task.status, data.status));
-      }
+      assertValidTransition(task.status, data.status);
     }
 
     // Prevent any status change on a subtask if its parent task is completed or on_hold
@@ -541,9 +547,11 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
     const preparedData: TaskUpdatePayload = { ...updateData, updatedAt: new Date() };
     if (data.dueDate !== undefined) preparedData.dueDate = data.dueDate;
 
-    // Set completedAt when transitioning to completed
+    // Set completedAt when transitioning to completed; clear it on re-open
     if (data.status === "completed" && task.status !== "completed") {
       preparedData.completedAt = new Date();
+    } else if (data.status && data.status !== "completed" && task.status === "completed") {
+      preparedData.completedAt = null;
     }
 
     const [updated] = await tx
@@ -629,6 +637,20 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
         .where(eq(users.id, result.createdBy))
     : [null];
 
+  // Notify assignees when a completed task is reopened (fire-and-forget)
+  if (data.status === "to_do") {
+    for (const assignee of assignees) {
+      createNotification({
+        userId: assignee.id,
+        type: "task_reopened",
+        title: "Task reopened",
+        body: `"${result.title}" has been reopened and is back to do.`,
+        entityType: "task",
+        entityId: id,
+      }).catch(catchError("updateTask:reopenNotify"));
+    }
+  }
+
   return { ...result, assignees, creator: creator ?? null };
 };
 
@@ -669,11 +691,12 @@ export const updateTaskStatus = async (
     }
 
     // Enforce transition rules
-    const allowed = ALLOWED_STATUS_TRANSITIONS[task.status] ?? [];
-    if (!allowed.includes(newStatus as TaskStatus)) {
-      throw new BadRequestException(M.INVALID_STATUS_TRANSITION(task.status, newStatus));
-    }
+    assertValidTransition(task.status, newStatus as TaskStatus);
 
+    // Only admins/superadmins can reopen a completed task
+    if (newStatus === "to_do" && task.status === "completed" && user.role === "developer") {
+      throw new ForbiddenException(M.ONLY_ADMINS_CAN_REOPEN);
+    }
 
     // Prevent any status change on a subtask if its parent task is completed or on_hold
     if (task.parentTaskId) {
@@ -703,7 +726,10 @@ export const updateTaskStatus = async (
       }
     }
 
-    const completedAt = newStatus === "completed" ? new Date() : undefined;
+    const completedAt =
+      newStatus === "completed" ? new Date() :
+      task.status === "completed" ? null :
+      undefined;
 
     const [updated] = await tx
       .update(tasks)
@@ -719,7 +745,7 @@ export const updateTaskStatus = async (
   if (!statusResult) throw new NotFoundException(M.TASK_NOT_FOUND);
 
   // Fire-and-forget notifications AFTER transaction commits to avoid connection race conditions
-  if (newStatus === "completed") {
+  if (newStatus === "completed" || newStatus === "to_do") {
     db.select({ userId: taskAssignees.userId })
       .from(taskAssignees)
       .where(eq(taskAssignees.taskId, id))
@@ -727,9 +753,11 @@ export const updateTaskStatus = async (
         for (const assignee of assignees) {
           createNotification({
             userId: assignee.userId,
-            type: "task_completed",
-            title: "Task marked as completed",
-            body: `"${statusResult.title}" has been marked as completed.`,
+            type: newStatus === "completed" ? "task_completed" : "task_reopened",
+            title: newStatus === "completed" ? "Task marked as completed" : "Task reopened",
+            body: newStatus === "completed"
+              ? `"${statusResult.title}" has been marked as completed.`
+              : `"${statusResult.title}" has been reopened and is back to do.`,
             entityType: "task",
             entityId: id,
           }).catch(catchError("updateTaskStatus:notify"));
