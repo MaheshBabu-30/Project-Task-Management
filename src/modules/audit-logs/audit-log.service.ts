@@ -14,6 +14,16 @@ interface AuditLogQuery extends PaginationQuery {
 
 // ─── Create Audit Log (internal helper) ──────────────────────────────────────
 
+const SENSITIVE_FIELDS = new Set(["passwordHash", "otpHash", "tokenHash", "refreshTokenHash"]);
+
+const sanitize = (obj: object): object => {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (!SENSITIVE_FIELDS.has(k)) out[k] = v;
+  }
+  return out;
+};
+
 export const createAuditLog = async (data: {
   orgId?: string;
   actorId: string;
@@ -26,8 +36,8 @@ export const createAuditLog = async (data: {
 }) => {
   await db.insert(auditLogs).values({
     ...data,
-    before: data.before ? JSON.stringify(data.before) : undefined,
-    after: data.after ? JSON.stringify(data.after) : undefined,
+    before: data.before ? JSON.stringify(sanitize(data.before)) : undefined,
+    after: data.after ? JSON.stringify(sanitize(data.after)) : undefined,
   });
 };
 

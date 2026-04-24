@@ -11,6 +11,15 @@ const store = new Map<string, RateLimitEntry>();
 // Cap the store to prevent OOM if IPs are randomized by an attacker
 const MAX_STORE_SIZE = 50_000;
 
+// Single shared cleanup — runs once per minute regardless of how many rateLimiter() instances exist
+const _cleanup = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of store.entries()) {
+    if (entry.resetAt <= now) store.delete(key);
+  }
+}, 60_000);
+if (typeof _cleanup === "object" && "unref" in _cleanup) (_cleanup as NodeJS.Timeout).unref();
+
 export interface RateLimitOptions {
   /** Time window in milliseconds */
   windowMs: number;
@@ -28,25 +37,12 @@ export const rateLimiter = ({
   max,
   message = "Too many requests. Please try again later.",
 }: RateLimitOptions): MiddlewareHandler => {
-  // Clean up expired entries on the same cadence as the window
-  const cleanup = setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of store.entries()) {
-      if (entry.resetAt <= now) store.delete(key);
-    }
-  }, windowMs);
-
-  // Allow Node to exit even if the interval is active
-  if (typeof cleanup === "object" && "unref" in cleanup) {
-    (cleanup as NodeJS.Timeout).unref();
-  }
-
   return async (c, next) => {
-    // Prefer the actual socket IP — cannot be spoofed by the client.
-    // X-Forwarded-For is client-controlled and must not be trusted for rate limiting.
-    const socketIp = (c.env as { incoming?: { socket?: { remoteAddress?: string } } })
-      ?.incoming?.socket?.remoteAddress;
-    const ip = socketIp ?? c.req.header("x-real-ip") ?? "unknown";
+    // Use the actual socket IP only — headers like X-Real-IP and X-Forwarded-For
+    // are client-controlled and can be spoofed to bypass rate limiting.
+    const ip =
+      (c.env as { incoming?: { socket?: { remoteAddress?: string } } })
+        ?.incoming?.socket?.remoteAddress ?? "unknown";
 
     const key = `${ip}:${c.req.path}`;
     const now = Date.now();

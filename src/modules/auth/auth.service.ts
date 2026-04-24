@@ -2,7 +2,7 @@ import bcrypt from "bcrypt";
 import { createHash, createHmac, randomInt } from "crypto";
 import { db } from "../../config/db.js";
 import { users, sessions, otps, orgMembers, organizations } from "../../db/schema/index.js";
-import { eq, and, desc, isNull } from "drizzle-orm";
+import { eq, and, desc, isNull, sql } from "drizzle-orm";
 import { generateToken, generateRefreshToken, verifyRefreshToken } from "../../utils/jwt.js";
 import {
   UnauthorizedException,
@@ -162,13 +162,9 @@ export const requestOtp = async (email: string) => {
   return { message: OTP_SENT };
 };
 
-// ─── OTP Attempt Tracking (in-memory) ────────────────────────────────────────
-// Tracks failed attempts per OTP record ID. Cleared when the OTP is consumed or invalidated.
-
-const otpAttempts = new Map<string, number>();
-const MAX_OTP_ATTEMPTS = 5;
-
 // ─── Verify OTP ───────────────────────────────────────────────────────────────
+
+const MAX_OTP_ATTEMPTS = 5;
 
 export const verifyOtp = async (email: string, otp: string) => {
   const [latestOtp] = await db
@@ -182,14 +178,20 @@ export const verifyOtp = async (email: string, otp: string) => {
 
   if (latestOtp.expiresAt < new Date()) {
     await db.delete(otps).where(eq(otps.id, latestOtp.id));
-    otpAttempts.delete(latestOtp.id);
     throw new BadRequestException(OTP_EXPIRED);
   }
 
-  const attempts = (otpAttempts.get(latestOtp.id) ?? 0) + 1;
+  // Increment attempt counter in DB before checking — survives server restarts
+  const [updated] = await db
+    .update(otps)
+    .set({ attempts: sql`${otps.attempts} + 1` })
+    .where(eq(otps.id, latestOtp.id))
+    .returning({ attempts: otps.attempts });
+
+  const attempts = updated?.attempts ?? MAX_OTP_ATTEMPTS + 1;
+
   if (attempts > MAX_OTP_ATTEMPTS) {
     await db.delete(otps).where(eq(otps.id, latestOtp.id));
-    otpAttempts.delete(latestOtp.id);
     throw new BadRequestException(OTP_TOO_MANY_ATTEMPTS);
   }
 
@@ -199,13 +201,11 @@ export const verifyOtp = async (email: string, otp: string) => {
   const isValid = incoming === latestOtp.otpHash;
 
   if (!isValid) {
-    otpAttempts.set(latestOtp.id, attempts);
     throw new BadRequestException(OTP_INVALID);
   }
 
   const deleted = await db.delete(otps).where(eq(otps.id, latestOtp.id)).returning({ id: otps.id });
   if (deleted.length === 0) throw new BadRequestException(OTP_ALREADY_USED);
-  otpAttempts.delete(latestOtp.id);
 
   const [user] = await db
     .select()

@@ -455,13 +455,28 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
     : [null];
 
   // 4. Fetch subtasks (only for root tasks) with their assignees
+  // Developers only see subtasks they are assigned to — same rule as root tasks.
   type SubtaskWithAssignees = TaskRecord & { assignees: UserSummary[] };
   let subtasks: SubtaskWithAssignees[] = [];
   if (!task.parentTaskId) {
+    const subtaskAssignedIds =
+      user.role === "developer"
+        ? db
+            .select({ taskId: taskAssignees.taskId })
+            .from(taskAssignees)
+            .where(eq(taskAssignees.userId, user.userId))
+        : undefined;
+
     const rawSubtasks = await db
       .select()
       .from(tasks)
-      .where(and(eq(tasks.parentTaskId, id), isNull(tasks.deletedAt)));
+      .where(
+        and(
+          eq(tasks.parentTaskId, id),
+          isNull(tasks.deletedAt),
+          subtaskAssignedIds ? inArray(tasks.id, subtaskAssignedIds) : undefined
+        )
+      );
 
     if (rawSubtasks.length > 0) {
       const subtaskIds = rawSubtasks.map((s) => s.id);

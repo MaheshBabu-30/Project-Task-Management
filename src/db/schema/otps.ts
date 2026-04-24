@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, integer, index } from "drizzle-orm/pg-core";
 import { users } from "./users.js";
 
 export const otps = pgTable(
@@ -8,6 +8,7 @@ export const otps = pgTable(
     email: varchar("email", { length: 255 }).notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     otpHash: text("otp_hash").notNull(),
+    attempts: integer("attempts").notNull().default(0),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
