@@ -39,20 +39,15 @@ export const getUsersList = async (c: AppContext) => {
   const user = c.get("user");
   const rawQuery = c.req.query();
 
-  const query = parse(userQuerySchema, {
-    ...rawQuery,
-    page: rawQuery.page ? Number(rawQuery.page) : 1,
-    limit: rawQuery.limit ? Number(rawQuery.limit) : 10,
-    unassigned: rawQuery.unassigned === "true" ? true : rawQuery.unassigned === "false" ? false : undefined,
-  });
+  const query = parse(userQuerySchema, rawQuery);
 
   // Admins are scoped to their org; Superadmins see everything unless they specify orgId in query
   // Developers are scoped to a specific project or task (passed as query params)
   const { data, totalRecords } = await getUsers(query, user.orgId, user.userId, user.role);
 
   const pagination = buildPagination({
-    page: query.page as number,
-    limit: query.limit as number,
+    page: query.page,
+    limit: query.limit,
     totalRecords
   });
 

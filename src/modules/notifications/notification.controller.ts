@@ -10,20 +10,13 @@ export const listNotifications = async (c: AppContext) => {
   const user = c.get("user");
   const rawQuery = c.req.query();
 
-  const query = parse(notificationQuerySchema, {
-    ...rawQuery,
-    page: rawQuery.page ? Number(rawQuery.page) : 1,
-    limit: rawQuery.limit ? Number(rawQuery.limit) : 20,
-    unread: rawQuery.unread === "true" ? true : rawQuery.unread === "false" ? false : undefined,
-    type: rawQuery.type,
-    order: rawQuery.order,
-  });
+  const query = parse(notificationQuerySchema, rawQuery);
 
   const { data, totalRecords, unreadCount } = await getNotifications(user.userId, query);
 
   const pagination = buildPagination({
-    page: query.page as number,
-    limit: query.limit as number,
+    page: query.page,
+    limit: query.limit,
     totalRecords,
   });
 

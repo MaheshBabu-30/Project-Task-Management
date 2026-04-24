@@ -11,19 +11,13 @@ export const listComments = async (c: AppContext) => {
   const taskId = parse(uuidSchema("Task ID"), c.req.param("taskId"));
   const rawQuery = c.req.query();
 
-  const query = parse(commentQuerySchema, {
-    ...rawQuery,
-    page: rawQuery.page ? Number(rawQuery.page) : 1,
-    limit: rawQuery.limit ? Number(rawQuery.limit) : 20,
-    order: rawQuery.order,
-    authorId: rawQuery.authorId,
-  });
+  const query = parse(commentQuerySchema, rawQuery);
 
   const { data, totalRecords } = await getComments(taskId, user, query);
 
   const pagination = buildPagination({
-    page: query.page as number,
-    limit: query.limit as number,
+    page: query.page,
+    limit: query.limit,
     totalRecords,
   });
 

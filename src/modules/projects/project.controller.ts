@@ -86,18 +86,13 @@ export const getProjectsList = async (c: AppContext) => {
   const user = c.get("user");
   const rawQuery = c.req.query();
 
-  const query = parse(projectQuerySchema, {
-    ...rawQuery,
-    page: rawQuery.page ? Number(rawQuery.page) : 1,
-    limit: rawQuery.limit ? Number(rawQuery.limit) : 10,
-    showDeleted: rawQuery.showDeleted === "true"
-  });
+  const query = parse(projectQuerySchema, rawQuery);
 
   const { data, totalRecords } = await getProjects(query, user);
 
   const pagination = buildPagination({
-    page: query.page as number,
-    limit: query.limit as number,
+    page: query.page,
+    limit: query.limit,
     totalRecords
   });
 

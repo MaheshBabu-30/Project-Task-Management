@@ -12,17 +12,13 @@ export const listAttachments = async (c: AppContext) => {
   const taskId = parse(uuidSchema("Task ID"), c.req.param("taskId"));
   const rawQuery = c.req.query();
 
-  const query = parse(attachmentQuerySchema, {
-    ...rawQuery,
-    page: rawQuery.page ? Number(rawQuery.page) : undefined,
-    limit: rawQuery.limit ? Number(rawQuery.limit) : undefined,
-  });
+  const query = parse(attachmentQuerySchema, rawQuery);
 
   const { data, totalRecords } = await getAttachments(taskId, user, query);
 
   const pagination = buildPagination({
-    page: query.page ?? 1,
-    limit: query.limit ?? 20,
+    page: query.page,
+    limit: query.limit,
     totalRecords,
   });
 

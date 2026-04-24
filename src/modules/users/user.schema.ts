@@ -1,4 +1,5 @@
-import { object, string, optional, number, minValue, maxValue, pipe, picklist, uuid, email, minLength, maxLength, nonEmpty, regex, boolean, trim, toLowerCase } from "valibot";
+import { object, string, optional, pipe, picklist, uuid, email, minLength, maxLength, nonEmpty, regex, trim, toLowerCase } from "valibot";
+import { pageSchema, limitSchema, booleanStringSchema } from "../../helpers/validators.js";
 import { userRoleEnum, userStatusEnum } from "../../db/schema/index.js";
 
 // Admins/superadmin can only create admin or developer — not superadmin
@@ -34,9 +35,9 @@ export const userQuerySchema = object({
   orgId: optional(pipe(string(), uuid())),
   projectId: optional(pipe(string(), uuid())),
   taskId: optional(pipe(string(), uuid())),
-  page: optional(pipe(number(), minValue(1, "Page must be >= 1"), maxValue(500, "Page must be <= 500"))),
-  limit: optional(pipe(number(), minValue(1, "Limit must be >= 1"), maxValue(100, "Limit must be <= 100"))),
+  page: pageSchema,
+  limit: limitSchema,
   sortBy: optional(picklist(["name", "email", "role", "status", "createdAt"] as const)),
   order: optional(picklist(["asc", "desc"] as const)),
-  unassigned: optional(boolean()),
+  unassigned: booleanStringSchema,
 });

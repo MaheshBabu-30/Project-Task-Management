@@ -1,4 +1,5 @@
-import { object, optional, string, number, pipe, picklist, uuid, minValue, maxValue, regex, check } from "valibot";
+import { object, optional, string, pipe, picklist, uuid, regex, check } from "valibot";
+import { pageSchema, limitSchema } from "../../helpers/validators.js";
 
 const AUDIT_ACTIONS = [
   "org.created", "org.deleted", "org.admin_assigned", "org.developer_added", "org.member_removed",
@@ -8,8 +9,8 @@ const AUDIT_ACTIONS = [
 ] as const;
 
 export const auditLogQuerySchema = object({
-  page: optional(pipe(number(), minValue(1, "Page must be >= 1"), maxValue(500, "Page must be <= 500"))),
-  limit: optional(pipe(number(), minValue(1, "Limit must be >= 1"), maxValue(100, "Limit must be <= 100"))),
+  page: pageSchema,
+  limit: limitSchema,
   orgId: optional(pipe(string(), uuid())),
   actorId: optional(pipe(string(), uuid())),
   entityType: optional(picklist(["task", "project", "user", "org"] as const)),

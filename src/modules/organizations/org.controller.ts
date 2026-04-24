@@ -49,17 +49,13 @@ export const createOrg = async (c: AppContext) => {
 export const listOrgs = async (c: AppContext) => {
   const rawQuery = c.req.query();
 
-  const query = parse(orgQuerySchema, {
-    ...rawQuery,
-    page: rawQuery.page ? Number(rawQuery.page) : undefined,
-    limit: rawQuery.limit ? Number(rawQuery.limit) : undefined,
-  });
+  const query = parse(orgQuerySchema, rawQuery);
 
   const { data, totalRecords } = await getAllOrganizations(query);
 
   const pagination = buildPagination({
-    page: query.page ?? 1,
-    limit: query.limit ?? 20,
+    page: query.page,
+    limit: query.limit,
     totalRecords,
   });
 

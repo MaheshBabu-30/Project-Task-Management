@@ -9,21 +9,15 @@ export const listAuditLogs = async (c: AppContext) => {
   const user = c.get("user");
   const rawQuery = c.req.query();
 
-  const query = parse(auditLogQuerySchema, {
-    ...rawQuery,
-    page: rawQuery.page ? Number(rawQuery.page) : 1,
-    limit: rawQuery.limit ? Number(rawQuery.limit) : 20,
-    sortBy: rawQuery.sortBy,
-    order: rawQuery.order,
-  });
+  const query = parse(auditLogQuerySchema, rawQuery);
 
   // Admin is always scoped to their own org
   const scopedOrgId = user.role === "admin" ? user.orgId : undefined;
   const { data, totalRecords } = await getAuditLogs(query, scopedOrgId);
 
   const pagination = buildPagination({
-    page: query.page as number,
-    limit: query.limit as number,
+    page: query.page,
+    limit: query.limit,
     totalRecords,
   });
 
