@@ -2,7 +2,7 @@ import bcrypt from "bcrypt";
 import { createHash, createHmac, randomInt } from "crypto";
 import { db } from "../../config/db.js";
 import { users, sessions, otps, orgMembers, organizations } from "../../db/schema/index.js";
-import { eq, and, desc, isNull, sql } from "drizzle-orm";
+import { eq, and, desc, isNull, sql, lt } from "drizzle-orm";
 import { generateToken, generateRefreshToken, verifyRefreshToken } from "../../utils/jwt.js";
 import {
   UnauthorizedException,
@@ -83,6 +83,9 @@ export const loginUser = async ({ email, password }: { email: string; password: 
   if (!isValid) throw new UnauthorizedException(INVALID_CREDENTIALS);
 
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
+
+  // Prune expired sessions for this user on every login to prevent table bloat
+  await db.delete(sessions).where(and(eq(sessions.userId, user.id), lt(sessions.expiresAt, new Date())));
 
   const { tokenPayload, orgName } = await buildTokenPayload(user);
   const accessToken = generateToken(tokenPayload);

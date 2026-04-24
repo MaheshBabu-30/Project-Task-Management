@@ -57,18 +57,20 @@ const assertValidTransition = (from: TaskStatus, to: TaskStatus) => {
 // ─── Helper: Update Project Status ───────────────────────────────────────────
 
 const updateProjectStatusIfComplete = async (tx: DbTransaction, projectId: string) => {
-  // Check if all ROOT tasks in this project are completed (subtasks don't count)
-  const pendingTasks = await tx
-    .select({ id: tasks.id })
+  // Check root task counts — subtasks don't count toward project completion
+  const [counts] = await tx
+    .select({
+      total: count(),
+      pending: sql<number>`COUNT(CASE WHEN ${tasks.status} != 'completed' THEN 1 END)`.mapWith(Number),
+    })
     .from(tasks)
-    .where(and(
-      eq(tasks.projectId, projectId),
-      isNull(tasks.deletedAt),
-      isNull(tasks.parentTaskId),
-      notInArray(tasks.status, ["completed"])
-    ));
+    .where(and(eq(tasks.projectId, projectId), isNull(tasks.deletedAt), isNull(tasks.parentTaskId)));
 
-  if (pendingTasks.length === 0) {
+  const pendingTasks = counts?.pending ?? 0;
+  const totalTasks = counts?.total ?? 0;
+
+  // Only mark completed if there is at least one task and all are done
+  if (totalTasks > 0 && pendingTasks === 0) {
     await tx.update(projects).set({ status: "completed" }).where(eq(projects.id, projectId));
   } else {
     // If there are pending tasks, ensure it's "active" (unless it was on_hold)

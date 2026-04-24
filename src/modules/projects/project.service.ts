@@ -348,12 +348,6 @@ export const getProjectById = async (id: string, user: { userId: string; role: s
 export const updateProject = async (id: string, data: UpdateProjectData, orgId?: string) => {
   const { assignedUserIds, ...projectData } = data;
 
-  // If logoUrl is being replaced, delete the old file from B2
-  if (data.logoUrl !== undefined) {
-    const [current] = await db.select({ logoUrl: projects.logoUrl }).from(projects).where(eq(projects.id, id));
-    if (current?.logoUrl) await deleteS3Object(current.logoUrl);
-  }
-
   // Capture existing members before the transaction for diffing
   let existingMemberIds: Set<string> = new Set();
   if (assignedUserIds !== undefined) {
@@ -364,13 +358,21 @@ export const updateProject = async (id: string, data: UpdateProjectData, orgId?:
     existingMemberIds = new Set(existing.map((m) => m.userId));
   }
 
-  const result = await db.transaction(async (tx) => {
+  const { result, oldLogoUrl } = await db.transaction(async (tx) => {
+    // Capture old logo and verify ownership before making changes
+    const [existing] = await tx
+      .select({ logoUrl: projects.logoUrl })
+      .from(projects)
+      .where(orgId
+        ? and(eq(projects.id, id), eq(projects.orgId, orgId), isNull(projects.deletedAt))
+        : and(eq(projects.id, id), isNull(projects.deletedAt)));
+
+    if (!existing) throw new NotFoundException(M.PROJECT_NOT_FOUND_OR_DENIED);
+
     const [updated] = await tx
       .update(projects)
       .set({ ...projectData, updatedAt: new Date() })
-      .where(orgId
-        ? and(eq(projects.id, id), eq(projects.orgId, orgId), isNull(projects.deletedAt))
-        : and(eq(projects.id, id), isNull(projects.deletedAt)))
+      .where(eq(projects.id, id))
       .returning();
 
     if (!updated) throw new NotFoundException(M.PROJECT_NOT_FOUND_OR_DENIED);
@@ -398,8 +400,13 @@ export const updateProject = async (id: string, data: UpdateProjectData, orgId?:
       }
     }
 
-    return updated;
+    return { result: updated, oldLogoUrl: existing.logoUrl };
   });
+
+  // Delete old logo from B2 only after the transaction succeeded (permission confirmed)
+  if (data.logoUrl !== undefined && oldLogoUrl && oldLogoUrl !== data.logoUrl) {
+    await deleteS3Object(oldLogoUrl);
+  }
 
   // Fetch members with user info to return consistent shape
   const members = await db
