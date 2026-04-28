@@ -96,7 +96,7 @@ const buildDescription = (
       const changed = diffFields(before, after);
       if (changed.length === 0) return `${actor} updated a ${entity}`;
       if (changed.length === 1) {
-        const k = changed[0];
+        const k = changed[0]!;
         return `${actor} changed ${entity} ${k} from ${fmt(before[k])} to ${fmt(after[k])}`;
       }
       const last = changed.pop()!;

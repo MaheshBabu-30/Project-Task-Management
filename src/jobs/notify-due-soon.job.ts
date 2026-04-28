@@ -11,10 +11,8 @@ import { logger, catchError } from "../utils/logger.js";
 export const notifyDueSoonTasks = async () => {
   const now = new Date();
 
-  // Tomorrow's date string "YYYY-MM-DD"
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split("T")[0]!;
+  // Tomorrow at midnight (local)
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
 
   // Find tasks due exactly tomorrow (not yet overdue, not completed or on_hold)
   const dueSoonTasks = await db
@@ -23,7 +21,7 @@ export const notifyDueSoonTasks = async () => {
     .where(
       and(
         isNull(tasks.deletedAt),
-        eq(tasks.dueDate, tomorrowStr),
+        eq(tasks.dueDate, tomorrow),
         notInArray(tasks.status, ["completed", "overdue", "on_hold"])
       )
     );

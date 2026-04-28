@@ -14,7 +14,7 @@ import { logger, catchError } from "../utils/logger.js";
  */
 export const markOverdueTasks = async () => {
   const now = new Date();
-  const todayStr = now.toISOString().split("T")[0]!; // "YYYY-MM-DD"
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
   const result = await db
     .update(tasks)
@@ -22,7 +22,7 @@ export const markOverdueTasks = async () => {
     .where(
       and(
         isNull(tasks.deletedAt),
-        lt(tasks.dueDate, todayStr),
+        lt(tasks.dueDate, today),
         notInArray(tasks.status, ["completed", "overdue", "on_hold"])
       )
     )
