@@ -8,6 +8,7 @@ import {
   updateTaskStatus,
   getTasks,
   getTaskById,
+  getTaskSnapshot,
   softDeleteTask,
 } from "./task.service.js";
 import { successResponse } from "../../utils/response.js";
@@ -90,6 +91,7 @@ export const updateTaskDetails = async (c: AppContext) => {
     // Developer: only status update allowed
     const { status } = parse(updateTaskStatusSchema, body);
 
+    const existing = await getTaskSnapshot(id);
     const updated = await updateTaskStatus(id, status, user);
 
     createAuditLog({
@@ -98,6 +100,7 @@ export const updateTaskDetails = async (c: AppContext) => {
       action: "task.status_updated",
       entityType: "task",
       entityId: id,
+      before: existing ?? undefined,
       after: { status },
       ipAddress: getIp(c),
     }).catch(catchError("task.controller:auditLog"));
@@ -107,6 +110,7 @@ export const updateTaskDetails = async (c: AppContext) => {
 
   // Admin / Superadmin: full update
   const data = parse(updateTaskSchema, body);
+  const existing = await getTaskSnapshot(id);
   const updated = await updateTask(id, data, user.orgId);
 
   createAuditLog({
@@ -115,6 +119,7 @@ export const updateTaskDetails = async (c: AppContext) => {
     action: "task.updated",
     entityType: "task",
     entityId: id,
+    before: existing ?? undefined,
     after: updated,
     ipAddress: getIp(c),
   }).catch(catchError("task.controller:auditLog"));

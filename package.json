@@ -9,6 +9,7 @@
     "build": "tsc",
     "seed": "tsx scripts/seeding/seed.ts",
     "seed:superadmin": "tsx scripts/seeding/seed-superadmin.ts",
+    "seed:monthly-stats": "tsx scripts/seeding/seed-monthly-stats.ts",
     "migrate": "tsx scripts/migrate.ts"
   },
   "keywords": [],

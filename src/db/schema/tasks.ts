@@ -24,7 +24,7 @@ export const tasks = pgTable(
     description: text("description"),
     status: taskStatusEnum("status").notNull().default("to_do"),
     priority: taskPriorityEnum("priority").notNull().default("medium"),
-    dueDate: date("due_date"),
+    dueDate: date("due_date", { mode: "date" }),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

@@ -41,6 +41,73 @@ export const createAuditLog = async (data: {
   });
 };
 
+// ─── Description Generator ───────────────────────────────────────────────────
+
+type Changes = Record<string, unknown>;
+
+// Fields that carry no meaning in a human-readable diff (metadata, joined data)
+const DIFF_SKIP = new Set([
+  "id", "orgId", "orgName", "projectId", "projectName",
+  "createdBy", "createdAt", "updatedAt", "deletedAt",
+  "assignees", "creator", "members", "taskCount",
+  "completedAt", "avatarUrl", "lastLoginAt",
+]);
+
+const fmt = (v: unknown): string => {
+  if (v === null || v === undefined) return "none";
+  if (typeof v === "string") return `'${v}'`;
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  return String(v);
+};
+
+const diffFields = (before: Changes, after: Changes): string[] =>
+  Object.keys(after).filter(
+    (k) => !DIFF_SKIP.has(k) && JSON.stringify(before[k]) !== JSON.stringify(after[k])
+  );
+
+const buildDescription = (
+  action: string,
+  actor: string,
+  before: Changes | null,
+  after: Changes | null
+): string => {
+  switch (action) {
+    case "task.created":    return `${actor} created a new task`;
+    case "task.deleted":    return `${actor} deleted a task`;
+    case "project.created": return `${actor} created a new project`;
+    case "project.deleted": return `${actor} deleted a project`;
+    case "user.created":    return `${actor} created a new user account`;
+    case "org.created":     return `${actor} created a new organization`;
+    case "org.deleted":     return `${actor} deleted the organization`;
+    case "org.admin_assigned":   return `${actor} assigned a new admin to the organization`;
+    case "org.developer_added":  return `${actor} added a developer to the organization`;
+    case "org.member_removed":   return `${actor} removed a member from the organization`;
+
+    case "task.status_updated":
+    case "user.status_updated": {
+      const entity = action.startsWith("task") ? "task" : "user";
+      return `${actor} changed ${entity} status from ${fmt(before?.status)} to ${fmt(after?.status)}`;
+    }
+
+    case "task.updated":
+    case "project.updated": {
+      const entity = action.startsWith("task") ? "task" : "project";
+      if (!before || !after) return `${actor} updated a ${entity}`;
+      const changed = diffFields(before, after);
+      if (changed.length === 0) return `${actor} updated a ${entity}`;
+      if (changed.length === 1) {
+        const k = changed[0];
+        return `${actor} changed ${entity} ${k} from ${fmt(before[k])} to ${fmt(after[k])}`;
+      }
+      const last = changed.pop()!;
+      return `${actor} updated ${entity}: ${changed.join(", ")} and ${last} changed`;
+    }
+
+    default:
+      return `${actor} performed: ${action}`;
+  }
+};
+
 // ─── Get Audit Logs ───────────────────────────────────────────────────────────
 
 export const getAuditLogs = async (
@@ -110,11 +177,21 @@ export const getAuditLogs = async (
       : Promise.resolve(),
   ]);
 
-  const data = rawData.map((log) => ({
-    ...log,
-    actor: log.actorId ? (actorsMap[log.actorId] ?? null) : null,
-    organization: log.orgId ? (orgsMap[log.orgId] ?? null) : null,
-  }));
+  const data = rawData.map((log) => {
+    const actor = log.actorId ? (actorsMap[log.actorId] ?? null) : null;
+    const before: Changes | null = log.before ? JSON.parse(log.before) : null;
+    const after: Changes | null = log.after ? JSON.parse(log.after) : null;
+    const actorLabel = actor?.name ?? actor?.email ?? "Unknown";
+
+    return {
+      ...log,
+      before,
+      after,
+      actor,
+      organization: log.orgId ? (orgsMap[log.orgId] ?? null) : null,
+      description: buildDescription(log.action, actorLabel, before, after),
+    };
+  });
 
   return { data, totalRecords: countResult[0]?.total ?? 0 };
 };

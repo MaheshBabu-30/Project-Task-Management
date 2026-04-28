@@ -475,3 +475,19 @@ export const deleteProject = async (id: string, orgId?: string) => {
 
   return { message: "Project and associated tasks deleted successfully", orgId: project.orgId };
 };
+
+// ─── Audit Snapshot ───────────────────────────────────────────────────────────
+
+export const getProjectSnapshot = async (id: string) => {
+  const [row] = await db
+    .select({
+      title: projects.title,
+      description: projects.description,
+      status: projects.status,
+      logoUrl: projects.logoUrl,
+    })
+    .from(projects)
+    .where(and(eq(projects.id, id), isNull(projects.deletedAt)))
+    .limit(1);
+  return row ?? null;
+};

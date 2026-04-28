@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { tasks, projects, taskAssignees, projectMembers, orgMembers, users, organizations } from "../../db/schema/index.js";
-import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, sql, type InferSelectModel } from "drizzle-orm";
+import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, sql, gte, lte, type InferSelectModel } from "drizzle-orm";
 import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";
 import { createNotification } from "../notifications/notification.service.js";
@@ -21,6 +21,8 @@ interface TaskQuery extends PaginationQuery {
   projectId?: string;
   parentTaskId?: string;
   assignedUserId?: string;
+  dueDateFrom?: string;
+  dueDateTo?: string;
   showDeleted?: boolean;
 }
 
@@ -37,7 +39,7 @@ type TaskUpdatePayload = {
   title?: string;
   description?: string;
   priority?: TaskPriority;
-  dueDate?: string | null;
+  dueDate?: Date | null;
   status?: TaskStatus;
   completedAt?: Date | null;
   updatedAt?: Date;
@@ -125,7 +127,7 @@ export const createTask = async (data: {
       .insert(tasks)
       .values({
         ...taskData,
-        dueDate: taskData.dueDate || null,
+        dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
       })
       .returning();
 
@@ -209,7 +211,7 @@ export const getTasks = async (
   query: TaskQuery,
   user: { userId: string; role: string; orgId?: string }
 ) => {
-  const { id, orgId, status, priority, search, projectId, parentTaskId, assignedUserId, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
+  const { id, orgId, status, priority, search, projectId, parentTaskId, assignedUserId, dueDateFrom, dueDateTo, page = 1, limit = 10, sortBy = "id", order = "asc", showDeleted = false } = query;
 
   // baseFilters holds everything *except* the status filter so stats always show all buckets
   const baseFilters = [showDeleted ? isNotNull(tasks.deletedAt) : isNull(tasks.deletedAt)];
@@ -257,6 +259,8 @@ export const getTasks = async (
   if (priority) baseFilters.push(eq(tasks.priority, priority));
   if (projectId) baseFilters.push(eq(tasks.projectId, projectId));
   if (search) baseFilters.push(ilike(tasks.title, `%${search}%`));
+  if (dueDateFrom) baseFilters.push(gte(tasks.dueDate, new Date(dueDateFrom)));
+  if (dueDateTo) baseFilters.push(lte(tasks.dueDate, new Date(dueDateTo)));
 
   if (assignedUserId) {
     const specificUserTaskIds = db
@@ -510,7 +514,7 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
 // ─── Update Task ──────────────────────────────────────────────────────────────
 
 export const updateTask = async (id: string, data: UpdateTaskData, orgId?: string) => {
-  const { assignedUserIds, ...updateData } = data;
+  const { assignedUserIds, dueDate: rawDueDate, ...updateData } = data;
 
   const { updated: result, prevStatus } = await db.transaction(async (tx) => {
     // 1. Check if task belongs to org
@@ -562,7 +566,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
 
     // 3. Update Task
     const preparedData: TaskUpdatePayload = { ...updateData, updatedAt: new Date() };
-    if (data.dueDate !== undefined) preparedData.dueDate = data.dueDate;
+    if (rawDueDate !== undefined) preparedData.dueDate = rawDueDate ? new Date(rawDueDate) : null;
 
     // Set completedAt when transitioning to completed; clear it on re-open
     if (data.status === "completed" && task.status !== "completed") {
@@ -829,4 +833,22 @@ export const softDeleteTask = async (id: string, orgId?: string) => {
   });
 
   return { message: "Task deleted successfully" };
+};
+
+// ─── Audit Snapshot ───────────────────────────────────────────────────────────
+
+export const getTaskSnapshot = async (id: string) => {
+  const [row] = await db
+    .select({
+      title: tasks.title,
+      description: tasks.description,
+      status: tasks.status,
+      priority: tasks.priority,
+      dueDate: tasks.dueDate,
+      parentTaskId: tasks.parentTaskId,
+    })
+    .from(tasks)
+    .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
+    .limit(1);
+  return row ?? null;
 };

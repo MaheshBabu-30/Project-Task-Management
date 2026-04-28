@@ -39,6 +39,8 @@ export const taskQuerySchema = object({
   projectId: optional(pipe(string(), uuid())),
   parentTaskId: optional(pipe(string(), uuid())),
   assignedUserId: optional(pipe(string(), uuid())),
+  dueDateFrom: optional(pipe(string(), trim(), nonEmpty("dueDateFrom cannot be empty"), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"), check((v) => !isNaN(Date.parse(v)), "Invalid date value"))),
+  dueDateTo: optional(pipe(string(), trim(), nonEmpty("dueDateTo cannot be empty"), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"), check((v) => !isNaN(Date.parse(v)), "Invalid date value"))),
   page: pageSchema,
   limit: limitSchema,
   sortBy: optional(picklist(["title", "status", "priority", "dueDate", "createdAt"] as const)),

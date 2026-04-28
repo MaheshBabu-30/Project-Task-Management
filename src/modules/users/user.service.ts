@@ -373,3 +373,14 @@ export const updateUserProfile = async (id: string, data: ProfileUpdate) => {
 
   return updated;
 };
+
+// ─── Audit Snapshot ───────────────────────────────────────────────────────────
+
+export const getUserSnapshot = async (id: string) => {
+  const [row] = await db
+    .select({ status: users.status })
+    .from(users)
+    .where(and(eq(users.id, id), isNull(users.deletedAt)))
+    .limit(1);
+  return row ?? null;
+};

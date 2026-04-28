@@ -10,6 +10,7 @@ import {
   createProject,
   getProjects,
   getProjectById,
+  getProjectSnapshot,
   updateProject,
   deleteProject
 } from "./project.service.js";
@@ -120,6 +121,7 @@ export const updateProjectDetails = async (c: AppContext) => {
   const body = await c.req.json();
   const data = parse(updateProjectSchema, body);
 
+  const existing = await getProjectSnapshot(id);
   const updated = await updateProject(id, data, user.orgId);
 
   createAuditLog({
@@ -128,6 +130,7 @@ export const updateProjectDetails = async (c: AppContext) => {
     action: "project.updated",
     entityType: "project",
     entityId: id,
+    before: existing ?? undefined,
     after: updated,
     ipAddress: getIp(c),
   }).catch(catchError("project.controller:auditLog"));

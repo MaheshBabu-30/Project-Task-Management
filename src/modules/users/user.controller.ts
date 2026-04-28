@@ -2,7 +2,7 @@ import { parse } from "valibot";
 import type { AppContext } from "../../types/hono.types.js";
 import { userQuerySchema, updateUserSchema, toggleUserStatusSchema, createUserSchema } from "./user.schema.js";
 import { uuidSchema } from "../../helpers/validators.js";
-import { getUsers, updateUserStatus, updateUserProfile, getUserById, createUser } from "./user.service.js";
+import { getUsers, updateUserStatus, updateUserProfile, getUserById, getUserSnapshot, createUser } from "./user.service.js";
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../helpers/pagination.js";
 import { createAuditLog } from "../audit-logs/audit-log.service.js";
@@ -64,6 +64,7 @@ export const toggleUserStatus = async (c: AppContext) => {
   const id = parse(uuidSchema("User ID"), c.req.param("id"));
   const body = await c.req.json();
   const { status } = parse(toggleUserStatusSchema, body);
+  const existing = await getUserSnapshot(id);
   const updated = await updateUserStatus(id, admin.userId, status, admin.role, admin.orgId);
 
   createAuditLog({
@@ -72,6 +73,7 @@ export const toggleUserStatus = async (c: AppContext) => {
     action: "user.status_updated",
     entityType: "user",
     entityId: id,
+    before: existing ?? undefined,
     after: { status },
     ipAddress: getIp(c),
   }).catch(catchError("user.controller:auditLog"));
