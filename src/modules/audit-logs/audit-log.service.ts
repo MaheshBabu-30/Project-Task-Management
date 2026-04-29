@@ -50,7 +50,7 @@ const DIFF_SKIP = new Set([
   "id", "orgId", "orgName", "projectId", "projectName",
   "createdBy", "createdAt", "updatedAt", "deletedAt",
   "assignees", "creator", "members", "taskCount",
-  "completedAt", "avatarUrl", "lastLoginAt",
+  "completedAt", "avatarUrl", "lastLoginAt", "parentTaskId",
 ]);
 
 const fmt = (v: unknown): string => {
@@ -72,10 +72,16 @@ const buildDescription = (
   after: Changes | null,
   entityName: string | null,
   projectName: string | null,
+  parentTaskName: string | null,
 ): string => {
+  const isSubtask = parentTaskName !== null;
   const taskRef = entityName
-    ? (projectName ? `task '${entityName}' in project '${projectName}'` : `task '${entityName}'`)
-    : "a task";
+    ? isSubtask
+      ? (projectName
+          ? `subtask '${entityName}' in task '${parentTaskName}' in project '${projectName}'`
+          : `subtask '${entityName}' in task '${parentTaskName}'`)
+      : (projectName ? `task '${entityName}' in project '${projectName}'` : `task '${entityName}'`)
+    : isSubtask ? "a subtask" : "a task";
   const projectRef = entityName ? `project '${entityName}'` : "a project";
   const orgRef = entityName ? `organization '${entityName}'` : "the organization";
 
@@ -191,10 +197,23 @@ export const getAuditLogs = async (
   const taskEntityIds    = [...new Set(rawData.filter((l) => l.entityType === "task").map((l) => l.entityId))];
   const userEntityIds    = [...new Set(rawData.filter((l) => l.entityType === "user").map((l) => l.entityId))];
 
+  // Collect parentTaskIds from task log snapshots so we can show "subtask in task X"
+  const parentTaskIdSet = new Set<string>();
+  rawData.forEach((log) => {
+    if (log.entityType === "task") {
+      const snap: Changes | null = log.before ? JSON.parse(log.before) : (log.after ? JSON.parse(log.after) : null);
+      if (snap?.parentTaskId && typeof snap.parentTaskId === "string") {
+        parentTaskIdSet.add(snap.parentTaskId);
+      }
+    }
+  });
+  const parentTaskIds = [...parentTaskIdSet];
+
   const actorsMap: Record<string, ActorSummary> = {};
   const orgsMap: Record<string, OrgSummary> = {};
   const entityNameMap: Record<string, string> = {};   // entityId → title/name
   const taskProjectMap: Record<string, string> = {};  // taskId   → project name
+  const parentTaskTitleMap: Record<string, string> = {}; // parentTaskId → title
 
   await Promise.all([
     actorIds.length > 0
@@ -240,6 +259,14 @@ export const getAuditLogs = async (
           .where(inArray(users.id, userEntityIds))
           .then((rows) => rows.forEach((r) => { entityNameMap[r.id] = r.name ?? r.email; }))
       : Promise.resolve(),
+
+    parentTaskIds.length > 0
+      ? db
+          .select({ id: tasks.id, title: tasks.title })
+          .from(tasks)
+          .where(inArray(tasks.id, parentTaskIds))
+          .then((rows) => rows.forEach((r) => { parentTaskTitleMap[r.id] = r.title; }))
+      : Promise.resolve(),
   ]);
 
   const computeChanges = (before: Changes | null, after: Changes | null) => {
@@ -262,17 +289,22 @@ export const getAuditLogs = async (
       ?? (before as Changes | null)?.title as string | undefined
       ?? null;
     const projectName = log.entityType === "task" ? (taskProjectMap[log.entityId] ?? null) : null;
+    const parentTaskId = log.entityType === "task"
+      ? ((before?.parentTaskId ?? after?.parentTaskId) as string | null | undefined) ?? null
+      : null;
+    const parentTaskName = parentTaskId ? (parentTaskTitleMap[parentTaskId] ?? null) : null;
 
     return {
       ...log,
       entityName,
       projectName,
+      parentTaskName,
       before,
       after,
       changes: computeChanges(before, after),
       actor,
       organization: log.orgId ? (orgsMap[log.orgId] ?? null) : null,
-      description: buildDescription(log.action, actorLabel, before, after, entityName, projectName),
+      description: buildDescription(log.action, actorLabel, before, after, entityName, projectName, parentTaskName),
     };
   });
 

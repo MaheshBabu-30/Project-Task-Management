@@ -376,6 +376,15 @@ export const updateUserProfile = async (id: string, data: ProfileUpdate) => {
 
 // ─── Audit Snapshot ───────────────────────────────────────────────────────────
 
+export const getUserOrgId = async (userId: string): Promise<string | undefined> => {
+  const [row] = await db
+    .select({ orgId: orgMembers.orgId })
+    .from(orgMembers)
+    .where(eq(orgMembers.userId, userId))
+    .limit(1);
+  return row?.orgId ?? undefined;
+};
+
 export const getUserSnapshot = async (id: string) => {
   const [row] = await db
     .select({ status: users.status, name: users.name, email: users.email })

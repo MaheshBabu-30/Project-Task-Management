@@ -2,7 +2,7 @@ import { parse } from "valibot";
 import type { AppContext } from "../../types/hono.types.js";
 import { userQuerySchema, updateUserSchema, toggleUserStatusSchema, createUserSchema } from "./user.schema.js";
 import { uuidSchema } from "../../helpers/validators.js";
-import { getUsers, updateUserStatus, updateUserProfile, getUserById, getUserSnapshot, createUser } from "./user.service.js";
+import { getUsers, updateUserStatus, updateUserProfile, getUserById, getUserSnapshot, getUserOrgId, createUser } from "./user.service.js";
 import { successResponse } from "../../utils/response.js";
 import { buildPagination } from "../../helpers/pagination.js";
 import { createAuditLog } from "../audit-logs/audit-log.service.js";
@@ -19,10 +19,13 @@ export const createNewUser = async (c: AppContext) => {
   const data = parse(createUserSchema, body);
 
   const result = await createUser(data, requester);
-  const afterSnap = await getUserSnapshot(result.id);
+  const [afterSnap, userOrgId] = await Promise.all([
+    getUserSnapshot(result.id),
+    requester.orgId ? Promise.resolve(requester.orgId) : getUserOrgId(result.id),
+  ]);
 
   createAuditLog({
-    orgId: requester.orgId,
+    orgId: userOrgId,
     actorId: requester.userId,
     action: "user.created",
     entityType: "user",
@@ -65,11 +68,14 @@ export const toggleUserStatus = async (c: AppContext) => {
   const id = parse(uuidSchema("User ID"), c.req.param("id"));
   const body = await c.req.json();
   const { status } = parse(toggleUserStatusSchema, body);
-  const existing = await getUserSnapshot(id);
+  const [existing, userOrgId] = await Promise.all([
+    getUserSnapshot(id),
+    admin.orgId ? Promise.resolve(admin.orgId) : getUserOrgId(id),
+  ]);
   const updated = await updateUserStatus(id, admin.userId, status, admin.role, admin.orgId);
 
   createAuditLog({
-    orgId: admin.orgId,
+    orgId: userOrgId,
     actorId: admin.userId,
     action: "user.status_updated",
     entityType: "user",

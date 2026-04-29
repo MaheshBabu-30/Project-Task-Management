@@ -9,6 +9,7 @@ import {
   getTasks,
   getTaskById,
   getTaskSnapshot,
+  getTaskOrgId,
   softDeleteTask,
 } from "./task.service.js";
 import { successResponse } from "../../utils/response.js";
@@ -31,10 +32,13 @@ export const createNewTask = async (c: AppContext) => {
     createdBy: user.userId,
     requesterOrgId: user.role !== "superadmin" ? user.orgId : undefined,
   });
-  const afterSnap = await getTaskSnapshot(task.id);
+  const [afterSnap, taskOrgId] = await Promise.all([
+    getTaskSnapshot(task.id),
+    user.orgId ? Promise.resolve(user.orgId) : getTaskOrgId(task.id),
+  ]);
 
   createAuditLog({
-    orgId: user.orgId,
+    orgId: taskOrgId,
     actorId: user.userId,
     action: "task.created",
     entityType: "task",
@@ -92,17 +96,21 @@ export const updateTaskDetails = async (c: AppContext) => {
     // Developer: only status update allowed
     const { status } = parse(updateTaskStatusSchema, body);
 
-    const existing = await getTaskSnapshot(id);
+    const [existing, taskOrgId] = await Promise.all([
+      getTaskSnapshot(id),
+      user.orgId ? Promise.resolve(user.orgId) : getTaskOrgId(id),
+    ]);
     const updated = await updateTaskStatus(id, status, user);
+    const afterSnap = await getTaskSnapshot(id);
 
     createAuditLog({
-      orgId: user.orgId,
+      orgId: taskOrgId,
       actorId: user.userId,
       action: "task.status_updated",
       entityType: "task",
       entityId: id,
       before: existing ?? undefined,
-      after: { status },
+      after: afterSnap ?? undefined,
       ipAddress: getIp(c),
     }).catch(catchError("task.controller:auditLog"));
 
@@ -111,12 +119,15 @@ export const updateTaskDetails = async (c: AppContext) => {
 
   // Admin / Superadmin: full update
   const data = parse(updateTaskSchema, body);
-  const existing = await getTaskSnapshot(id);
+  const [existing, taskOrgId] = await Promise.all([
+    getTaskSnapshot(id),
+    user.orgId ? Promise.resolve(user.orgId) : getTaskOrgId(id),
+  ]);
   const updated = await updateTask(id, data, user.orgId);
   const afterSnap = await getTaskSnapshot(id);
 
   createAuditLog({
-    orgId: user.orgId,
+    orgId: taskOrgId,
     actorId: user.userId,
     action: "task.updated",
     entityType: "task",
@@ -134,11 +145,14 @@ export const updateTaskDetails = async (c: AppContext) => {
 export const deleteTaskRecord = async (c: AppContext) => {
   const user = c.get("user");
   const id = parse(uuidSchema("Task ID"), c.req.param("id"));
-  const existing = await getTaskSnapshot(id);
+  const [existing, taskOrgId] = await Promise.all([
+    getTaskSnapshot(id),
+    user.orgId ? Promise.resolve(user.orgId) : getTaskOrgId(id),
+  ]);
   const result = await softDeleteTask(id, user.orgId);
 
   createAuditLog({
-    orgId: user.orgId,
+    orgId: taskOrgId,
     actorId: user.userId,
     action: "task.deleted",
     entityType: "task",

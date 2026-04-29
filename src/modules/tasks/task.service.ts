@@ -837,6 +837,16 @@ export const softDeleteTask = async (id: string, orgId?: string) => {
 
 // ─── Audit Snapshot ───────────────────────────────────────────────────────────
 
+export const getTaskOrgId = async (taskId: string): Promise<string | undefined> => {
+  const [row] = await db
+    .select({ orgId: projects.orgId })
+    .from(tasks)
+    .innerJoin(projects, eq(tasks.projectId, projects.id))
+    .where(eq(tasks.id, taskId))
+    .limit(1);
+  return row?.orgId ?? undefined;
+};
+
 export const getTaskSnapshot = async (id: string) => {
   const [row] = await db
     .select({
