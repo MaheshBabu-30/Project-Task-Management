@@ -126,16 +126,18 @@ export const updateTaskDetails = async (c: AppContext) => {
   const updated = await updateTask(id, data, user.orgId);
   const afterSnap = await getTaskSnapshot(id);
 
-  createAuditLog({
-    orgId: taskOrgId,
-    actorId: user.userId,
-    action: "task.updated",
-    entityType: "task",
-    entityId: id,
-    before: existing ?? undefined,
-    after: afterSnap ?? undefined,
-    ipAddress: getIp(c),
-  }).catch(catchError("task.controller:auditLog"));
+  if (JSON.stringify(existing) !== JSON.stringify(afterSnap)) {
+    createAuditLog({
+      orgId: taskOrgId,
+      actorId: user.userId,
+      action: "task.updated",
+      entityType: "task",
+      entityId: id,
+      before: existing ?? undefined,
+      after: afterSnap ?? undefined,
+      ipAddress: getIp(c),
+    }).catch(catchError("task.controller:auditLog"));
+  }
 
   return successResponse(c, updated);
 };

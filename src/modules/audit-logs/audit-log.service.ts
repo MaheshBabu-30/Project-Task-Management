@@ -1,6 +1,6 @@
 import { db } from "../../config/db.js";
 import { auditLogs, users, organizations, projects, tasks } from "../../db/schema/index.js";
-import { eq, and, gte, lte, ilike, asc, desc, count, inArray, isNull, type SQL } from "drizzle-orm";
+import { eq, and, gte, lte, asc, desc, count, inArray, isNull, type SQL } from "drizzle-orm";
 import type { PaginationQuery } from "../../types/common.types.js";
 
 interface AuditLogQuery extends PaginationQuery {
@@ -57,6 +57,7 @@ const DIFF_SKIP = new Set([
 
 const fmt = (v: unknown): string => {
   if (v === null || v === undefined) return "none";
+  if (Array.isArray(v)) return v.length > 0 ? v.map(String).join(", ") : "none";
   if (typeof v === "string") return `'${v}'`;
   if (typeof v === "boolean") return v ? "yes" : "no";
   return String(v);
@@ -124,7 +125,8 @@ const buildDescription = (
       if (!before || !after) return `${actor} updated ${taskRef}`;
       const changed = diffFields(before, after);
       if (changed.length === 0) return `${actor} updated ${taskRef}`;
-      const parts = changed.map((k) => `${k} from ${fmt(before[k])} to ${fmt(after[k])}`);
+      const FIELD_LABELS: Record<string, string> = { assigneeNames: "assignees" };
+      const parts = changed.map((k) => `${FIELD_LABELS[k] ?? k} from ${fmt(before[k])} to ${fmt(after[k])}`);
       if (parts.length === 1) return `${actor} changed ${taskRef} ${parts[0]}`;
       const last = parts.pop()!;
       return `${actor} updated ${taskRef}: ${parts.join(", ")} and ${last}`;
@@ -167,7 +169,7 @@ export const getAuditLogs = async (
   if (actorId) filters.push(eq(auditLogs.actorId, actorId));
   if (entityId) filters.push(eq(auditLogs.entityId, entityId));
   if (entityType) filters.push(eq(auditLogs.entityType, entityType));
-  if (action) filters.push(ilike(auditLogs.action, `%${action}%`));
+  if (action) filters.push(eq(auditLogs.action, action));
   if (from) filters.push(gte(auditLogs.createdAt, new Date(from)));
   if (to) filters.push(lte(auditLogs.createdAt, new Date(`${to}T23:59:59`)));
 

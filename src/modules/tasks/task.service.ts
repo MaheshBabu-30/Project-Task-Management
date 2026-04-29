@@ -856,9 +856,20 @@ export const getTaskSnapshot = async (id: string) => {
       priority: tasks.priority,
       dueDate: tasks.dueDate,
       parentTaskId: tasks.parentTaskId,
+      assigneeNames: sql<string[]>`
+        COALESCE(
+          ARRAY_AGG(COALESCE(${users.name}, ${users.email}) ORDER BY COALESCE(${users.name}, ${users.email}))
+          FILTER (WHERE ${users.id} IS NOT NULL),
+          ARRAY[]::text[]
+        )
+      `.mapWith((v) => (Array.isArray(v) ? v : [])),
     })
     .from(tasks)
+    .leftJoin(taskAssignees, eq(taskAssignees.taskId, tasks.id))
+    .leftJoin(users, eq(taskAssignees.userId, users.id))
     .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)))
+    .groupBy(tasks.id)
     .limit(1);
+
   return row ?? null;
 };
