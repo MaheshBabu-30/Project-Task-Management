@@ -42,6 +42,7 @@ export const createNewProject = async (c: AppContext) => {
       createdBy: user.userId,
       assignedUserIds: body.assignedUserIds,
     });
+    const afterSnap = await getProjectSnapshot(project.id);
 
     createAuditLog({
       orgId: targetOrgId,
@@ -49,7 +50,7 @@ export const createNewProject = async (c: AppContext) => {
       action: "project.created",
       entityType: "project",
       entityId: project.id,
-      after: project,
+      after: afterSnap ?? undefined,
       ipAddress: getIp(c),
     }).catch(catchError("project.controller:auditLog"));
 
@@ -67,6 +68,7 @@ export const createNewProject = async (c: AppContext) => {
     createdBy: user.userId,
     assignedUserIds: body.assignedUserIds,
   });
+  const afterSnap = await getProjectSnapshot(project.id);
 
   createAuditLog({
     orgId: user.orgId,
@@ -74,7 +76,7 @@ export const createNewProject = async (c: AppContext) => {
     action: "project.created",
     entityType: "project",
     entityId: project.id,
-    after: project,
+    after: afterSnap ?? undefined,
     ipAddress: getIp(c),
   }).catch(catchError("project.controller:auditLog"));
 
@@ -123,6 +125,7 @@ export const updateProjectDetails = async (c: AppContext) => {
 
   const existing = await getProjectSnapshot(id);
   const updated = await updateProject(id, data, user.orgId);
+  const afterSnap = await getProjectSnapshot(id);
 
   createAuditLog({
     orgId: updated.orgId,
@@ -131,7 +134,7 @@ export const updateProjectDetails = async (c: AppContext) => {
     entityType: "project",
     entityId: id,
     before: existing ?? undefined,
-    after: updated,
+    after: afterSnap ?? undefined,
     ipAddress: getIp(c),
   }).catch(catchError("project.controller:auditLog"));
 
@@ -143,6 +146,7 @@ export const updateProjectDetails = async (c: AppContext) => {
 export const deleteProjectRecord = async (c: AppContext) => {
   const user = c.get("user");
   const id = parse(uuidSchema("Project ID"), c.req.param("id"));
+  const existing = await getProjectSnapshot(id);
   const result = await deleteProject(id, user.orgId);
 
   createAuditLog({
@@ -151,6 +155,7 @@ export const deleteProjectRecord = async (c: AppContext) => {
     action: "project.deleted",
     entityType: "project",
     entityId: id,
+    before: existing ?? undefined,
     ipAddress: getIp(c),
   }).catch(catchError("project.controller:auditLog"));
 

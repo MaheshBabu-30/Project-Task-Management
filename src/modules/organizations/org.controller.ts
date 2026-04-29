@@ -13,7 +13,9 @@ import {
   addDeveloperToOrg,
   removeMemberFromOrg,
   softDeleteOrg,
+  getOrgSnapshot,
 } from "./org.service.js";
+import { getUserSnapshot } from "../users/user.service.js";
 import { successResponse } from "../../utils/response.js";
 import { createAuditLog } from "../audit-logs/audit-log.service.js";
 import { createNotification } from "../notifications/notification.service.js";
@@ -31,14 +33,17 @@ export const createOrg = async (c: AppContext) => {
   const org = await createOrganization(data);
 
   if (org) {
-    createAuditLog({
-      actorId: user.userId,
-      action: "org.created",
-      entityType: "organization",
-      entityId: org.id,
-      after: org,
-      ipAddress: getIp(c),
-    }).catch(catchError("org.controller:auditLog"));
+    getOrgSnapshot(org.id)
+      .then((snap) => createAuditLog({
+        orgId: org.id,
+        actorId: user.userId,
+        action: "org.created",
+        entityType: "organization",
+        entityId: org.id,
+        after: snap ?? undefined,
+        ipAddress: getIp(c),
+      }))
+      .catch(catchError("org.controller:auditLog"));
   }
 
   return successResponse(c, org, 201);
@@ -93,7 +98,7 @@ export const assignAdmin = async (c: AppContext) => {
     action: "org.admin_assigned",
     entityType: "organization",
     entityId: orgId,
-    after: { userId },
+    after: { userId, userName: result.member.user.name ?? result.member.user.email },
     ipAddress: getIp(c),
   }).catch(catchError("org.controller:auditLog"));
 
@@ -132,7 +137,7 @@ export const addDeveloper = async (c: AppContext) => {
     action: "org.developer_added",
     entityType: "organization",
     entityId: orgId,
-    after: { userId },
+    after: { userId, userName: member.user.name ?? member.user.email },
     ipAddress: getIp(c),
   }).catch(catchError("org.controller:auditLog"));
 
@@ -153,6 +158,7 @@ export const addDeveloper = async (c: AppContext) => {
 export const deleteOrg = async (c: AppContext) => {
   const user = c.get("user");
   const orgId = parse(uuidSchema("Organization ID"), c.req.param("id"));
+  const existing = await getOrgSnapshot(orgId);
   const result = await softDeleteOrg(orgId, user.userId);
 
   createAuditLog({
@@ -161,6 +167,7 @@ export const deleteOrg = async (c: AppContext) => {
     action: "org.deleted",
     entityType: "organization",
     entityId: orgId,
+    before: existing ?? undefined,
     ipAddress: getIp(c),
   }).catch(catchError("org.controller:auditLog"));
 
@@ -179,6 +186,7 @@ export const removeMember = async (c: AppContext) => {
     throw new ForbiddenException(ACCESS_DENIED);
   }
 
+  const removedUser = await getUserSnapshot(userId);
   const result = await removeMemberFromOrg(orgId, userId);
 
   createAuditLog({
@@ -187,7 +195,7 @@ export const removeMember = async (c: AppContext) => {
     action: "org.member_removed",
     entityType: "organization",
     entityId: orgId,
-    after: { removedUserId: userId },
+    after: { removedUserId: userId, userName: removedUser?.name ?? removedUser?.email ?? userId },
     ipAddress: getIp(c),
   }).catch(catchError("org.controller:auditLog"));
 

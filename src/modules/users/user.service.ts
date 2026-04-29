@@ -378,7 +378,7 @@ export const updateUserProfile = async (id: string, data: ProfileUpdate) => {
 
 export const getUserSnapshot = async (id: string) => {
   const [row] = await db
-    .select({ status: users.status })
+    .select({ status: users.status, name: users.name, email: users.email })
     .from(users)
     .where(and(eq(users.id, id), isNull(users.deletedAt)))
     .limit(1);

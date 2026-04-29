@@ -19,6 +19,7 @@ export const createNewUser = async (c: AppContext) => {
   const data = parse(createUserSchema, body);
 
   const result = await createUser(data, requester);
+  const afterSnap = await getUserSnapshot(result.id);
 
   createAuditLog({
     orgId: requester.orgId,
@@ -26,7 +27,7 @@ export const createNewUser = async (c: AppContext) => {
     action: "user.created",
     entityType: "user",
     entityId: result.id,
-    after: result,
+    after: afterSnap ?? undefined,
     ipAddress: getIp(c),
   }).catch(catchError("user.controller:auditLog"));
 

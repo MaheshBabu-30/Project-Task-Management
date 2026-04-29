@@ -31,6 +31,7 @@ export const createNewTask = async (c: AppContext) => {
     createdBy: user.userId,
     requesterOrgId: user.role !== "superadmin" ? user.orgId : undefined,
   });
+  const afterSnap = await getTaskSnapshot(task.id);
 
   createAuditLog({
     orgId: user.orgId,
@@ -38,7 +39,7 @@ export const createNewTask = async (c: AppContext) => {
     action: "task.created",
     entityType: "task",
     entityId: task.id,
-    after: task,
+    after: afterSnap ?? undefined,
     ipAddress: getIp(c),
   }).catch(catchError("task.controller:auditLog"));
 
@@ -112,6 +113,7 @@ export const updateTaskDetails = async (c: AppContext) => {
   const data = parse(updateTaskSchema, body);
   const existing = await getTaskSnapshot(id);
   const updated = await updateTask(id, data, user.orgId);
+  const afterSnap = await getTaskSnapshot(id);
 
   createAuditLog({
     orgId: user.orgId,
@@ -120,7 +122,7 @@ export const updateTaskDetails = async (c: AppContext) => {
     entityType: "task",
     entityId: id,
     before: existing ?? undefined,
-    after: updated,
+    after: afterSnap ?? undefined,
     ipAddress: getIp(c),
   }).catch(catchError("task.controller:auditLog"));
 
@@ -132,6 +134,7 @@ export const updateTaskDetails = async (c: AppContext) => {
 export const deleteTaskRecord = async (c: AppContext) => {
   const user = c.get("user");
   const id = parse(uuidSchema("Task ID"), c.req.param("id"));
+  const existing = await getTaskSnapshot(id);
   const result = await softDeleteTask(id, user.orgId);
 
   createAuditLog({
@@ -140,6 +143,7 @@ export const deleteTaskRecord = async (c: AppContext) => {
     action: "task.deleted",
     entityType: "task",
     entityId: id,
+    before: existing ?? undefined,
     ipAddress: getIp(c),
   }).catch(catchError("task.controller:auditLog"));
 

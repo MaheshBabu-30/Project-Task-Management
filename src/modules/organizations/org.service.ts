@@ -68,6 +68,15 @@ export const getAllOrganizations = async (query?: OrgQuery) => {
 
 // ─── Soft Delete Organization ─────────────────────────────────────────────────
 
+export const getOrgSnapshot = async (id: string) => {
+  const [row] = await db
+    .select({ name: organizations.name, slug: organizations.slug })
+    .from(organizations)
+    .where(and(eq(organizations.id, id), isNull(organizations.deletedAt)))
+    .limit(1);
+  return row ?? null;
+};
+
 export const softDeleteOrg = async (orgId: string, deletedBy: string) => {
   const [org] = await db
     .select()
