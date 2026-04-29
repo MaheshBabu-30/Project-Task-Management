@@ -4,8 +4,10 @@ import { eq, and, gte, lte, ilike, asc, desc, count, inArray, isNull, type SQL }
 import type { PaginationQuery } from "../../types/common.types.js";
 
 interface AuditLogQuery extends PaginationQuery {
+  id?: string;
   orgId?: string;
   actorId?: string;
+  entityId?: string;
   entityType?: string;
   action?: string;
   from?: string;
@@ -149,7 +151,7 @@ export const getAuditLogs = async (
   query: AuditLogQuery,
   scopedOrgId?: string  // set for admin — restricts to their org
 ) => {
-  const { page = 1, limit = 20, orgId, actorId, entityType, action, from, to, sortBy = "createdAt", order = "desc" } = query;
+  const { page = 1, limit = 20, id, orgId, actorId, entityId, entityType, action, from, to, sortBy = "createdAt", order = "desc" } = query;
   const offset = (page - 1) * limit;
 
   type ActorSummary = { id: string; name: string | null; email: string };
@@ -161,7 +163,9 @@ export const getAuditLogs = async (
   const targetOrgId = scopedOrgId ?? orgId;
   if (targetOrgId) filters.push(eq(auditLogs.orgId, targetOrgId));
 
+  if (id) filters.push(eq(auditLogs.id, id));
   if (actorId) filters.push(eq(auditLogs.actorId, actorId));
+  if (entityId) filters.push(eq(auditLogs.entityId, entityId));
   if (entityType) filters.push(eq(auditLogs.entityType, entityType));
   if (action) filters.push(ilike(auditLogs.action, `%${action}%`));
   if (from) filters.push(gte(auditLogs.createdAt, new Date(from)));

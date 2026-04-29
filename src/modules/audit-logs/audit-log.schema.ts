@@ -11,8 +11,10 @@ const AUDIT_ACTIONS = [
 export const auditLogQuerySchema = object({
   page: pageSchema,
   limit: limitSchema,
+  id: optional(pipe(string(), uuid())),
   orgId: optional(pipe(string(), uuid())),
   actorId: optional(pipe(string(), uuid())),
+  entityId: optional(pipe(string(), uuid())),
   entityType: optional(picklist(["task", "project", "user", "org"] as const)),
   action: optional(picklist(AUDIT_ACTIONS, "Invalid action value")),
   from: optional(pipe(string(), regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"), check((v) => !isNaN(Date.parse(v)), "Invalid from date"))),
