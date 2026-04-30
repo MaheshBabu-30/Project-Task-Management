@@ -2,7 +2,7 @@ import { db } from "../../config/db.js";
 import { organizations, orgMembers, users, projects, projectMembers, taskAssignees, tasks, sessions, comments } from "../../db/schema/index.js";
 import { eq, and, isNull, inArray, ilike, asc, desc, count } from "drizzle-orm";
 import { BadRequestException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
-import { ORG_NOT_FOUND, ADMIN_ROLE_REQUIRED, ADMIN_ALREADY_IN_ORG, SLUG_TAKEN, USER_NOT_FOUND } from "../../constants/appMessages.js";
+import { ORG_NOT_FOUND, ADMIN_ROLE_REQUIRED, ADMIN_ALREADY_IN_ORG, ORG_ALREADY_HAS_ADMIN, SLUG_TAKEN, USER_NOT_FOUND } from "../../constants/appMessages.js";
 import type { UserSummary, PaginationQuery } from "../../types/common.types.js";
 
 interface OrgQuery extends PaginationQuery {
@@ -172,6 +172,13 @@ export const assignAdminToOrg = async (orgId: string, userId: string) => {
     .where(and(eq(orgMembers.userId, userId), eq(orgMembers.role, "admin")));
 
   if (existingMembership) throw new ConflictException(ADMIN_ALREADY_IN_ORG);
+
+  const [orgExistingAdmin] = await db
+    .select({ userId: orgMembers.userId })
+    .from(orgMembers)
+    .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.role, "admin")));
+
+  if (orgExistingAdmin) throw new ConflictException(ORG_ALREADY_HAS_ADMIN);
 
   return await db.transaction(async (tx) => {
     await tx.update(organizations).set({ ownerId: userId, updatedAt: new Date() }).where(eq(organizations.id, orgId));

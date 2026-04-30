@@ -35,6 +35,7 @@ export const USER_NOT_IN_ORG              = "User not found in your organization
 export const ORG_NOT_FOUND                = "Organization not found";
 export const ADMIN_ROLE_REQUIRED          = "User must have the 'admin' role to be assigned as org admin";
 export const ADMIN_ALREADY_IN_ORG         = "This admin is already assigned to an organization. An admin can only belong to one organization.";
+export const ORG_ALREADY_HAS_ADMIN        = "This organization already has an admin. An organization can only have one admin.";
 export const SLUG_TAKEN                   = (slug: string) => `Slug "${slug}" is already taken. Choose a different slug.`;
 
 // ─── Projects ─────────────────────────────────────────────────────────────────
@@ -84,6 +85,12 @@ export const ATTACHMENT_DELETE_OWN        = "You can only delete your own attach
 export const BUCKET_NOT_CONFIGURED        = "B2_BUCKET_NAME is not configured";
 export const UPLOAD_URL_FAILED            = "Failed to generate upload URL";
 export const DOWNLOAD_URL_FAILED          = "Failed to generate download URL";
+
+// ─── Data Transfer ────────────────────────────────────────────────────────────
+
+export const EXPORT_NO_TASKS                  = "No tasks found to export";
+export const IMPORT_TASK_FAILED               = "Failed to create one or more tasks during import";
+export const IMPORT_PROJECT_FAILED            = "Failed to create project during import";
 
 // ─── General ──────────────────────────────────────────────────────────────────
 
