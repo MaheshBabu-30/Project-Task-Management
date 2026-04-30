@@ -12,6 +12,7 @@ import commentRoutes from "./modules/comments/comment.routes.js";
 import attachmentRoutes from "./modules/attachments/attachment.routes.js";
 import notificationRoutes from "./modules/notifications/notification.routes.js";
 import auditLogRoutes from "./modules/audit-logs/audit-log.routes.js";
+import dataTransferRoutes from "./modules/data-transfer/data-transfer.routes.js";
 import { env } from "./config/env.js";
 import { logger } from "./utils/logger.js";
 import type { AppEnv } from "./types/hono.types.js";
@@ -48,6 +49,7 @@ app.route("/api/orgs", orgRoutes);
 app.route("/api/uploads", uploadRoutes);
 app.route("/api/notifications", notificationRoutes);
 app.route("/api/audit-logs", auditLogRoutes);
+app.route("/api", dataTransferRoutes);
 
 // Task sub-resources
 app.route("/api/tasks/:taskId/comments", commentRoutes);
