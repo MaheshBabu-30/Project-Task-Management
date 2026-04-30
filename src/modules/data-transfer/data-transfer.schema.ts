@@ -1,4 +1,4 @@
-import { object, string, optional, pipe, picklist, array, minLength, maxLength, regex, nonEmpty, check, trim, email } from "valibot";
+import { object, string, optional, nullish, pipe, picklist, array, minLength, maxLength, regex, nonEmpty, check, trim, email } from "valibot";
 import type { InferOutput } from "valibot";
 import { taskStatusEnum, taskPriorityEnum, projectStatusEnum } from "../../db/schema/index.js";
 
@@ -11,10 +11,10 @@ const SETTABLE_STATUSES = taskStatusEnum.enumValues.filter((s) => s !== "overdue
 
 const importSubtaskSchema = object({
   title: pipe(string(), trim(), nonEmpty("Title is required"), maxLength(300, "Title must be at most 300 characters")),
-  description: optional(pipe(string(), trim(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
+  description: nullish(pipe(string(), trim(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
   priority: optional(picklist(taskPriorityEnum.enumValues, "Priority must be low, medium, high, or urgent")),
   status: optional(picklist(SETTABLE_STATUSES, "Invalid status")),
-  dueDate: optional(pipe(
+  dueDate: nullish(pipe(
     string(), trim(), nonEmpty("Due date cannot be empty"),
     regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"),
     check((v) => !isNaN(Date.parse(v)), "Invalid date value"),
@@ -24,10 +24,10 @@ const importSubtaskSchema = object({
 
 const importTaskItemSchema = object({
   title: pipe(string(), trim(), nonEmpty("Title is required"), maxLength(300, "Title must be at most 300 characters")),
-  description: optional(pipe(string(), trim(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
+  description: nullish(pipe(string(), trim(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
   priority: optional(picklist(taskPriorityEnum.enumValues, "Priority must be low, medium, high, or urgent")),
   status: optional(picklist(SETTABLE_STATUSES, "Invalid status")),
-  dueDate: optional(pipe(
+  dueDate: nullish(pipe(
     string(), trim(), nonEmpty("Due date cannot be empty"),
     regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"),
     check((v) => !isNaN(Date.parse(v)), "Invalid date value"),
@@ -47,7 +47,7 @@ export const importTasksBodySchema = object({
 export const importProjectBodySchema = object({
   project: object({
     title: pipe(string(), trim(), nonEmpty("Title is required"), maxLength(200, "Title must be at most 200 characters")),
-    description: optional(pipe(string(), trim(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
+    description: nullish(pipe(string(), trim(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
     status: optional(picklist(projectStatusEnum.enumValues, "Status must be active, on_hold, or completed")),
   }),
   tasks: optional(pipe(
