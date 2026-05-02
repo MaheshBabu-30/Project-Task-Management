@@ -13,3 +13,18 @@ export const verifyOtpSchema = object({
   email: pipe(string(), trim(), toLowerCase(), nonEmpty("Email is required"), email("Invalid email address")),
   otp: pipe(string(), trim(), nonEmpty("OTP is required"), length(6, "OTP must be exactly 6 digits"), regex(/^\d{6}$/, "OTP must contain digits only")),
 });
+
+export const changePasswordSchema = object({
+  currentPassword: pipe(string(), nonEmpty("Current password is required"), minLength(8, "Password must be at least 8 characters"), maxLength(100, "Password must be at most 100 characters")),
+  newPassword: pipe(string(), nonEmpty("New password is required"), minLength(8, "New password must be at least 8 characters"), maxLength(100, "Password must be at most 100 characters")),
+});
+
+export const forgotPasswordSchema = object({
+  email: pipe(string(), trim(), toLowerCase(), nonEmpty("Email is required"), email("Invalid email address")),
+});
+
+export const resetPasswordSchema = object({
+  email: pipe(string(), trim(), toLowerCase(), nonEmpty("Email is required"), email("Invalid email address")),
+  otp: pipe(string(), trim(), nonEmpty("OTP is required"), length(6, "OTP must be exactly 6 digits"), regex(/^\d{6}$/, "OTP must contain digits only")),
+  newPassword: pipe(string(), nonEmpty("New password is required"), minLength(8, "New password must be at least 8 characters"), maxLength(100, "Password must be at most 100 characters")),
+});

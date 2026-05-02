@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { loginUserAccount, refreshUserSession, requestLoginOtp, verifyLoginOtp, logoutUserAccount } from "./auth.controller.js";
+import { loginUserAccount, refreshUserSession, requestLoginOtp, verifyLoginOtp, logoutUserAccount, changePasswordHandler, forgotPasswordHandler, resetPasswordHandler } from "./auth.controller.js";
 import { authMiddleware } from "../../middlewares/auth.middleware.js";
 import { rateLimiter } from "../../middlewares/rate-limit.middleware.js";
 import type { AppEnv } from "../../types/hono.types.js";
@@ -14,6 +14,10 @@ router.post("/refresh", authRateLimit, refreshUserSession);
 router.post("/request-otp", authRateLimit, requestLoginOtp);
 router.post("/verify-otp", authRateLimit, verifyLoginOtp);
 router.post("/logout", authMiddleware, logoutUserAccount);
+
+router.post("/change-password", authMiddleware, changePasswordHandler);
+router.post("/forgot-password", authRateLimit, forgotPasswordHandler);
+router.post("/reset-password", authRateLimit, resetPasswordHandler);
 
 
 

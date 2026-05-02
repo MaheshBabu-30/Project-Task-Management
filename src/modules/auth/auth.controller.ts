@@ -1,7 +1,7 @@
 import { parse } from "valibot";
 import type { AppContext } from "../../types/hono.types.js";
-import { loginSchema, requestOtpSchema, verifyOtpSchema } from "./auth.schema.js";
-import { loginUser, refreshSession, requestOtp, verifyOtp, logoutUser } from "./auth.service.js";
+import { loginSchema, requestOtpSchema, verifyOtpSchema, changePasswordSchema, forgotPasswordSchema, resetPasswordSchema } from "./auth.schema.js";
+import { loginUser, refreshSession, requestOtp, verifyOtp, logoutUser, changePassword, forgotPassword, resetPassword } from "./auth.service.js";
 import { successResponse } from "../../utils/response.js";
 import { BadRequestException } from "../../exceptions/index.js";
 
@@ -52,7 +52,29 @@ export const requestLoginOtp = async (c: AppContext) => {
 export const verifyLoginOtp = async (c: AppContext) => {
   const body = await c.req.json();
   const data = parse(verifyOtpSchema, body);
-  
+
   const result = await verifyOtp(data.email, data.otp);
+  return successResponse(c, result);
+};
+
+export const changePasswordHandler = async (c: AppContext) => {
+  const user = c.get("user");
+  const body = await c.req.json();
+  const { currentPassword, newPassword } = parse(changePasswordSchema, body);
+  const result = await changePassword(user.userId, currentPassword, newPassword);
+  return successResponse(c, result);
+};
+
+export const forgotPasswordHandler = async (c: AppContext) => {
+  const body = await c.req.json();
+  const { email } = parse(forgotPasswordSchema, body);
+  const result = await forgotPassword(email);
+  return successResponse(c, result);
+};
+
+export const resetPasswordHandler = async (c: AppContext) => {
+  const body = await c.req.json();
+  const { email, otp, newPassword } = parse(resetPasswordSchema, body);
+  const result = await resetPassword(email, otp, newPassword);
   return successResponse(c, result);
 };

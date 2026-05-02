@@ -8,6 +8,7 @@ export const otps = pgTable(
     email: varchar("email", { length: 255 }).notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     otpHash: text("otp_hash").notNull(),
+    purpose: varchar("purpose", { length: 10 }).notNull().default("login"),
     attempts: integer("attempts").notNull().default(0),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
