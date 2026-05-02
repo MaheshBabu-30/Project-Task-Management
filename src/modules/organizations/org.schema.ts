@@ -13,6 +13,7 @@ export const createOrgSchema = object({
     maxLength(100, "Slug must be at most 100 characters"),
     regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug must be lowercase alphanumeric with hyphens only (e.g. my-org)")
   ),
+  description: optional(pipe(string(), trim(), maxLength(1000, "Description must be at most 1000 characters"))),
 });
 
 // Assign admin or add developer — just needs a userId (UUID)

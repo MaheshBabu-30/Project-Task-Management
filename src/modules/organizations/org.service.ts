@@ -12,7 +12,7 @@ interface OrgQuery extends PaginationQuery {
 
 // ─── Create Organization ──────────────────────────────────────────────────────
 
-export const createOrganization = async (data: { name: string; slug: string }) => {
+export const createOrganization = async (data: { name: string; slug: string; description?: string }) => {
   const [existing] = await db
     .select({ id: organizations.id })
     .from(organizations)
@@ -22,7 +22,7 @@ export const createOrganization = async (data: { name: string; slug: string }) =
 
   const [org] = await db
     .insert(organizations)
-    .values({ name: data.name, slug: data.slug })
+    .values({ name: data.name, slug: data.slug, description: data.description ?? null })
     .returning();
 
   return org;
