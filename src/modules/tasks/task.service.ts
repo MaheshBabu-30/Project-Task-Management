@@ -641,6 +641,23 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
       await updateProjectStatusIfComplete(tx, updated.projectId);
     }
 
+    // Sync parent task status whenever a subtask status changes
+    if (task.parentTaskId && data.status) {
+      if (data.status !== "completed") {
+        // Subtask reopened/started — push parent to in_progress if it's to_do or completed
+        await tx
+          .update(tasks)
+          .set({ status: "in_progress", completedAt: null, updatedAt: new Date() })
+          .where(and(eq(tasks.id, task.parentTaskId), inArray(tasks.status, ["to_do", "completed"])));
+      } else {
+        // Subtask completed — push parent to in_progress if it's still to_do
+        await tx
+          .update(tasks)
+          .set({ status: "in_progress", updatedAt: new Date() })
+          .where(and(eq(tasks.id, task.parentTaskId), eq(tasks.status, "to_do")));
+      }
+    }
+
     return { updated, prevStatus: task.status };
   });
 
@@ -720,14 +737,19 @@ export const updateTaskStatus = async (
       throw new ForbiddenException(M.ONLY_ADMINS_CAN_REOPEN);
     }
 
-    // Prevent any status change on a subtask if its parent task is completed or on_hold
+    // Prevent status change on a subtask if parent is on_hold (everyone blocked)
+    // If parent is completed, only admins/superadmins can change subtask status — parent auto-updates to in_progress
     if (task.parentTaskId) {
       const [parentTask] = await tx
         .select({ status: tasks.status })
         .from(tasks)
         .where(and(eq(tasks.id, task.parentTaskId), isNull(tasks.deletedAt)));
 
-      if (parentTask?.status === "completed" || parentTask?.status === "on_hold") {
+      if (parentTask?.status === "on_hold") {
+        throw new BadRequestException(M.SUBTASK_LOCKED_BY_PARENT);
+      }
+
+      if (parentTask?.status === "completed" && user.role === "developer") {
         throw new BadRequestException(M.SUBTASK_LOCKED_BY_PARENT);
       }
     }
@@ -760,6 +782,23 @@ export const updateTaskStatus = async (
       .returning();
 
     await updateProjectStatusIfComplete(tx, task.projectId);
+
+    // Sync parent task status whenever a subtask status changes
+    if (task.parentTaskId) {
+      if (newStatus !== "completed") {
+        // Subtask reopened/started — push parent to in_progress if it's to_do or completed
+        await tx
+          .update(tasks)
+          .set({ status: "in_progress", completedAt: null, updatedAt: new Date() })
+          .where(and(eq(tasks.id, task.parentTaskId), inArray(tasks.status, ["to_do", "completed"])));
+      } else {
+        // Subtask completed — push parent to in_progress if it's still to_do
+        await tx
+          .update(tasks)
+          .set({ status: "in_progress", updatedAt: new Date() })
+          .where(and(eq(tasks.id, task.parentTaskId), eq(tasks.status, "to_do")));
+      }
+    }
 
     return updated;
   });
