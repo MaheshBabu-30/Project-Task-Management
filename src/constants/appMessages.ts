@@ -61,7 +61,7 @@ export const TASK_NOT_ASSIGNED            = "Access denied. Task not assigned to
 export const ONLY_COMPLETED_CAN_DELETE    = "Only completed tasks can be deleted";
 export const ONLY_ADMINS_CAN_REOPEN       = "Only admins and superadmins can reopen completed tasks";
 export const ASSIGNED_USER_IDS_EMPTY      = "assignedUserIds cannot be empty. Omit the field to keep current assignees.";
-export const INVALID_ASSIGNEES            = "One or more assigned users are not developers in this organization";
+export const INVALID_ASSIGNEES            = "One or more assigned users are not members of this organization";
 export const PARENT_TASK_NOT_FOUND        = "Parent task not found";
 export const SUBTASK_WRONG_PROJECT        = "Subtask must belong to the same project as its parent";
 export const SUBTASK_MAX_DEPTH            = "Cannot create a subtask of a subtask. Max 1 level deep.";
@@ -91,6 +91,8 @@ export const DOWNLOAD_URL_FAILED          = "Failed to generate download URL";
 export const EXPORT_NO_TASKS                  = "No tasks found to export";
 export const IMPORT_TASK_FAILED               = "Failed to create one or more tasks during import";
 export const IMPORT_PROJECT_FAILED            = "Failed to create project during import";
+export const IMPORT_ORG_FAILED                = "Failed to create organization during import";
+export const USER_CREATE_FAILED_IMPORT        = "Failed to create one or more users during import";
 
 // ─── General ──────────────────────────────────────────────────────────────────
 

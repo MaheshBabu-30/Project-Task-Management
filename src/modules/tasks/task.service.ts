@@ -147,7 +147,7 @@ export const createTask = async (data: {
           .where(and(
             eq(orgMembers.orgId, project.orgId),
             inArray(orgMembers.userId, assignedUserIds),
-            eq(orgMembers.role, "developer")
+            inArray(orgMembers.role, ["developer", "admin"])
           ));
 
         if (validMembers.length !== assignedUserIds.length) {
@@ -602,7 +602,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
             .where(and(
               eq(orgMembers.orgId, proj.orgId),
               inArray(orgMembers.userId, assignedUserIds),
-              eq(orgMembers.role, "developer")
+              inArray(orgMembers.role, ["developer", "admin"])
             ));
 
           if (validMembers.length !== assignedUserIds.length) {

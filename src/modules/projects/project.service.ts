@@ -59,7 +59,7 @@ export const createProject = async (data: {
       const validMembers = await tx
         .select({ userId: orgMembers.userId })
         .from(orgMembers)
-        .where(and(eq(orgMembers.orgId, data.orgId), inArray(orgMembers.userId, assignedUserIds), eq(orgMembers.role, "developer")));
+        .where(and(eq(orgMembers.orgId, data.orgId), inArray(orgMembers.userId, assignedUserIds), inArray(orgMembers.role, ["developer", "admin"])));
 
       if (validMembers.length !== assignedUserIds.length) {
         throw new BadRequestException(M.INVALID_PROJECT_MEMBERS);
@@ -388,7 +388,7 @@ export const updateProject = async (id: string, data: UpdateProjectData, orgId?:
         const validMembers = await tx
           .select({ userId: orgMembers.userId })
           .from(orgMembers)
-          .where(and(eq(orgMembers.orgId, updated.orgId), inArray(orgMembers.userId, assignedUserIds), eq(orgMembers.role, "developer")));
+          .where(and(eq(orgMembers.orgId, updated.orgId), inArray(orgMembers.userId, assignedUserIds), inArray(orgMembers.role, ["developer", "admin"])));
 
         if (validMembers.length !== assignedUserIds.length) {
           throw new BadRequestException(M.INVALID_PROJECT_MEMBERS);
