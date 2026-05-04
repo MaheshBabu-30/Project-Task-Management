@@ -271,8 +271,8 @@ export const forgotPassword = async (email: string) => {
     .from(users)
     .where(and(eq(users.email, email), isNull(users.deletedAt)));
 
-  // Always return the same message regardless — prevents user enumeration
-  if (!user || user.status === "inactive") return { message: PASSWORD_RESET_OTP_SENT };
+  if (!user) throw new NotFoundException(EMAIL_NOT_REGISTERED);
+  if (user.status === "inactive") throw new ForbiddenException(ACCOUNT_DEACTIVATED);
 
   const otp = randomInt(100000, 1000000).toString();
   const otpSecret = env.OTP_SECRET;
