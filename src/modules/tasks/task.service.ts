@@ -1,5 +1,5 @@
 import { db } from "../../config/db.js";
-import { tasks, projects, taskAssignees, projectMembers, orgMembers, users, organizations } from "../../db/schema/index.js";
+import { tasks, projects, taskAssignees, projectMembers, users, organizations } from "../../db/schema/index.js";
 import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, sql, gte, lte, type InferSelectModel } from "drizzle-orm";
 import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";
@@ -135,19 +135,24 @@ export const createTask = async (data: {
 
     // 3. Assign Developers
     if (assignedUserIds && assignedUserIds.length > 0) {
-      const [project] = await tx
-        .select({ orgId: projects.orgId })
-        .from(projects)
-        .where(eq(projects.id, taskData.projectId));
+      if (taskData.parentTaskId) {
+        // Subtask: assignees must be from the parent task's assignees
+        const parentAssignees = await tx
+          .select({ userId: taskAssignees.userId })
+          .from(taskAssignees)
+          .where(eq(taskAssignees.taskId, taskData.parentTaskId));
 
-      if (project) {
+        const parentAssigneeIds = new Set(parentAssignees.map((a) => a.userId));
+        const allValid = assignedUserIds.every((uid) => parentAssigneeIds.has(uid));
+        if (!allValid) throw new BadRequestException(M.INVALID_SUBTASK_ASSIGNEES);
+      } else {
+        // Root task: assignees must be members of the project
         const validMembers = await tx
-          .select({ userId: orgMembers.userId })
-          .from(orgMembers)
+          .select({ userId: projectMembers.userId })
+          .from(projectMembers)
           .where(and(
-            eq(orgMembers.orgId, project.orgId),
-            inArray(orgMembers.userId, assignedUserIds),
-            inArray(orgMembers.role, ["developer", "admin"])
+            eq(projectMembers.projectId, taskData.projectId),
+            inArray(projectMembers.userId, assignedUserIds),
           ));
 
         if (validMembers.length !== assignedUserIds.length) {
@@ -160,12 +165,6 @@ export const createTask = async (data: {
         userId,
       }));
       await tx.insert(taskAssignees).values(assignEntries);
-
-      // Auto-add assignees to projectMembers so they can view the project
-      await tx
-        .insert(projectMembers)
-        .values(assignedUserIds.map((userId) => ({ projectId: taskData.projectId, userId })))
-        .onConflictDoNothing();
 
       // Notify each assigned user (fire-and-forget)
       for (const userId of assignedUserIds) {
@@ -589,50 +588,48 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
         throw new BadRequestException(M.ASSIGNED_USER_IDS_EMPTY);
       }
       await tx.delete(taskAssignees).where(eq(taskAssignees.taskId, id));
-      if (assignedUserIds.length > 0) {
-        const [proj] = await tx
-          .select({ orgId: projects.orgId })
-          .from(projects)
-          .where(eq(projects.id, task.projectId));
 
-        if (proj) {
-          const validMembers = await tx
-            .select({ userId: orgMembers.userId })
-            .from(orgMembers)
-            .where(and(
-              eq(orgMembers.orgId, proj.orgId),
-              inArray(orgMembers.userId, assignedUserIds),
-              inArray(orgMembers.role, ["developer", "admin"])
-            ));
+      if (task.parentTaskId) {
+        // Subtask: assignees must be from the parent task's assignees
+        const parentAssignees = await tx
+          .select({ userId: taskAssignees.userId })
+          .from(taskAssignees)
+          .where(eq(taskAssignees.taskId, task.parentTaskId));
 
-          if (validMembers.length !== assignedUserIds.length) {
-            throw new BadRequestException(M.INVALID_ASSIGNEES);
-          }
+        const parentAssigneeIds = new Set(parentAssignees.map((a) => a.userId));
+        const allValid = assignedUserIds.every((uid) => parentAssigneeIds.has(uid));
+        if (!allValid) throw new BadRequestException(M.INVALID_SUBTASK_ASSIGNEES);
+      } else {
+        // Root task: assignees must be members of the project
+        const validMembers = await tx
+          .select({ userId: projectMembers.userId })
+          .from(projectMembers)
+          .where(and(
+            eq(projectMembers.projectId, task.projectId),
+            inArray(projectMembers.userId, assignedUserIds),
+          ));
+
+        if (validMembers.length !== assignedUserIds.length) {
+          throw new BadRequestException(M.INVALID_ASSIGNEES);
         }
+      }
 
-        const assignEntries = assignedUserIds.map((userId: string) => ({
-          taskId: id,
+      const assignEntries = assignedUserIds.map((userId: string) => ({
+        taskId: id,
+        userId,
+      }));
+      await tx.insert(taskAssignees).values(assignEntries);
+
+      // Notify newly assigned users (fire-and-forget)
+      for (const userId of assignedUserIds) {
+        createNotification({
           userId,
-        }));
-        await tx.insert(taskAssignees).values(assignEntries);
-
-        // Auto-add assignees to projectMembers so they can view the project
-        await tx
-          .insert(projectMembers)
-          .values(assignedUserIds.map((userId: string) => ({ projectId: task.projectId, userId })))
-          .onConflictDoNothing();
-
-        // Notify newly assigned users (fire-and-forget)
-        for (const userId of assignedUserIds) {
-          createNotification({
-            userId,
-            type: "task_assigned",
-            title: "You have been assigned a task",
-            body: `You were assigned to: "${updated.title}"`,
-            entityType: "task",
-            entityId: id,
-          }).catch(catchError("updateTask:notify"));
-        }
+          type: "task_assigned",
+          title: "You have been assigned a task",
+          body: `You were assigned to: "${updated.title}"`,
+          entityType: "task",
+          entityId: id,
+        }).catch(catchError("updateTask:notify"));
       }
     }
 
