@@ -11,8 +11,8 @@ router.use(authMiddleware);
 router.get("/", getProjectsList);
 router.get("/:id", getProjectDetails);
 
-router.post("/", roleMiddleware(["admin", "superadmin"]), createNewProject);
-router.patch("/:id", roleMiddleware(["admin", "superadmin"]), updateProjectDetails);
-router.delete("/:id", roleMiddleware(["admin", "superadmin"]), deleteProjectRecord);
+router.post("/", roleMiddleware(["admin"]), createNewProject);
+router.patch("/:id", roleMiddleware(["admin"]), updateProjectDetails);
+router.delete("/:id", roleMiddleware(["admin"]), deleteProjectRecord);
 
 export default router;

@@ -25,6 +25,9 @@ export const createUser = async (
   data: { name: string; email: string; password: string; role: "admin" | "developer" },
   requester: { userId: string; role: "superadmin" | "admin" | "developer"; orgId?: string }
 ) => {
+  if (requester.role === "superadmin" && data.role !== "admin") {
+    throw new ForbiddenException("Superadmin can only create admin users");
+  }
   if (requester.role === "admin" && data.role !== "developer") {
     throw new ForbiddenException(ADMIN_DEVELOPER_ONLY);
   }

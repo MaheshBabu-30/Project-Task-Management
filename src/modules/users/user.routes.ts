@@ -8,7 +8,7 @@ const router = new Hono<AppEnv>();
 
 router.use(authMiddleware);
 
-// Superadmin creates admin/developer; Admin creates developer only
+// Superadmin creates admin only; Admin creates developer only
 router.post("/", roleMiddleware(["superadmin", "admin"]), createNewUser);
 
 // Users can get and update their own profile — must be before /:id to avoid route conflict
@@ -19,7 +19,7 @@ router.patch("/me", updateMe);
 router.get("/", getUsersList);
 router.get("/:id", getUserDetails);
 
-// Only admins can toggle developer status
-router.patch("/:id/status", roleMiddleware(["admin", "superadmin"]), toggleUserStatus);
+// Only admins can toggle user status
+router.patch("/:id/status", roleMiddleware(["admin"]), toggleUserStatus);
 
 export default router;
