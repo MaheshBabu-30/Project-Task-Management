@@ -478,6 +478,12 @@ export const deleteProject = async (id: string, orgId?: string) => {
 
 // ─── Audit Snapshot ───────────────────────────────────────────────────────────
 
+const extractFileName = (key: string | null): string | null => {
+  if (!key) return null;
+  const segment = key.split("/").pop() ?? key;
+  return segment.split("-").slice(6).join("-");
+};
+
 export const getProjectSnapshot = async (id: string) => {
   const [row] = await db
     .select({
@@ -489,5 +495,7 @@ export const getProjectSnapshot = async (id: string) => {
     .from(projects)
     .where(and(eq(projects.id, id), isNull(projects.deletedAt)))
     .limit(1);
-  return row ?? null;
+  if (!row) return null;
+  const { logoUrl, ...rest } = row;
+  return { ...rest, fileName: extractFileName(logoUrl) };
 };
