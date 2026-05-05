@@ -185,7 +185,7 @@ export const assignAdminToOrg = async (orgId: string, userId: string) => {
     const [member] = await tx.insert(orgMembers).values({ orgId, userId, role: "admin" }).returning();
     if (!member) throw new InternalServerException("Failed to assign admin to organization");
     return {
-      org: { ...org, ownerId: userId },
+      org: { ...org, ownerId: userId, ownerName: user.name },
       member: { ...member, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, avatarUrl: user.avatarUrl, status: user.status } },
     };
   });
@@ -209,9 +209,12 @@ export const addDeveloperToOrg = async (orgId: string, userId: string, addedByOr
 
   if (existingMembership) throw new ConflictException("This developer is already a member of an organization");
 
-  const [member] = await db.insert(orgMembers).values({ orgId, userId, role: "developer" }).returning();
+  const [[member], orgRow] = await Promise.all([
+    db.insert(orgMembers).values({ orgId, userId, role: "developer" }).returning(),
+    db.select({ name: organizations.name }).from(organizations).where(eq(organizations.id, orgId)).limit(1),
+  ]);
   if (!member) throw new InternalServerException("Failed to add developer to organization");
-  return { ...member, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, avatarUrl: user.avatarUrl, status: user.status } };
+  return { ...member, orgName: orgRow[0]?.name ?? null, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, avatarUrl: user.avatarUrl, status: user.status } };
 };
 
 // ─── Remove Member from Organization ─────────────────────────────────────────

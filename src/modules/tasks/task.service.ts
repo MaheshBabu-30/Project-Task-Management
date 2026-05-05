@@ -187,12 +187,19 @@ export const createTask = async (data: {
     return task;
   });
 
-  // Fetch assignees with user info to return consistent shape
-  const assignees = await db
-    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
-    .from(taskAssignees)
-    .innerJoin(users, eq(taskAssignees.userId, users.id))
-    .where(eq(taskAssignees.taskId, newTask.id));
+  // Fetch assignees, project title, and creator in parallel
+  const [assignees, projectRow] = await Promise.all([
+    db
+      .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+      .from(taskAssignees)
+      .innerJoin(users, eq(taskAssignees.userId, users.id))
+      .where(eq(taskAssignees.taskId, newTask.id)),
+    db
+      .select({ title: projects.title })
+      .from(projects)
+      .where(eq(projects.id, newTask.projectId))
+      .limit(1),
+  ]);
 
   const [creator] = newTask.createdBy
     ? await db
@@ -201,7 +208,7 @@ export const createTask = async (data: {
         .where(eq(users.id, newTask.createdBy))
     : [null];
 
-  return { ...newTask, assignees, creator: creator ?? null };
+  return { ...newTask, projectTitle: projectRow[0]?.title ?? null, assignees, creator: creator ?? null };
 };
 
 // ─── Get Tasks (Scoped) ───────────────────────────────────────────────────────
@@ -289,6 +296,7 @@ export const getTasks = async (
     .select({
       id: tasks.id,
       projectId: tasks.projectId,
+      projectTitle: projects.title,
       orgId: projects.orgId,
       orgName: organizations.name,
       parentTaskId: tasks.parentTaskId,
@@ -658,12 +666,19 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
     return { updated, prevStatus: task.status };
   });
 
-  // Fetch assignees with user info to return consistent shape
-  const assignees = await db
-    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
-    .from(taskAssignees)
-    .innerJoin(users, eq(taskAssignees.userId, users.id))
-    .where(eq(taskAssignees.taskId, id));
+  // Fetch assignees, project title, and creator in parallel
+  const [assignees, projectRow] = await Promise.all([
+    db
+      .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+      .from(taskAssignees)
+      .innerJoin(users, eq(taskAssignees.userId, users.id))
+      .where(eq(taskAssignees.taskId, id)),
+    db
+      .select({ title: projects.title })
+      .from(projects)
+      .where(eq(projects.id, result.projectId))
+      .limit(1),
+  ]);
 
   const [creator] = result.createdBy
     ? await db
@@ -687,7 +702,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
     }
   }
 
-  return { ...result, assignees, creator: creator ?? null };
+  return { ...result, projectTitle: projectRow[0]?.title ?? null, assignees, creator: creator ?? null };
 };
 
 // ─── Update Task Status Only (Developer + Admin) ─────────────────────────────
@@ -824,12 +839,19 @@ export const updateTaskStatus = async (
       .catch(catchError("updateTaskStatus:fetchAssignees"));
   }
 
-  // Fetch assignees with user info to return consistent shape
-  const assignees = await db
-    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
-    .from(taskAssignees)
-    .innerJoin(users, eq(taskAssignees.userId, users.id))
-    .where(eq(taskAssignees.taskId, id));
+  // Fetch assignees, project title, and creator in parallel
+  const [assignees, projectRow] = await Promise.all([
+    db
+      .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+      .from(taskAssignees)
+      .innerJoin(users, eq(taskAssignees.userId, users.id))
+      .where(eq(taskAssignees.taskId, id)),
+    db
+      .select({ title: projects.title })
+      .from(projects)
+      .where(eq(projects.id, statusResult.projectId))
+      .limit(1),
+  ]);
 
   const [creator] = statusResult.createdBy
     ? await db
@@ -838,7 +860,7 @@ export const updateTaskStatus = async (
         .where(eq(users.id, statusResult.createdBy))
     : [null];
 
-  return { ...statusResult, assignees, creator: creator ?? null };
+  return { ...statusResult, projectTitle: projectRow[0]?.title ?? null, assignees, creator: creator ?? null };
 };
 
 // ─── Soft Delete Task ────────────────────────────────────────────────────────

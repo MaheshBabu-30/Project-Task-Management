@@ -75,12 +75,19 @@ export const createProject = async (data: {
     return project;
   });
 
-  // Fetch members with user info to return consistent shape
-  const members = await db
-    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
-    .from(projectMembers)
-    .innerJoin(users, eq(projectMembers.userId, users.id))
-    .where(eq(projectMembers.projectId, newProject.id));
+  // Fetch members, org name, and creator in parallel
+  const [members, orgRow] = await Promise.all([
+    db
+      .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+      .from(projectMembers)
+      .innerJoin(users, eq(projectMembers.userId, users.id))
+      .where(eq(projectMembers.projectId, newProject.id)),
+    db
+      .select({ name: organizations.name })
+      .from(organizations)
+      .where(eq(organizations.id, newProject.orgId))
+      .limit(1),
+  ]);
 
   const [creator] = newProject.createdBy
     ? await db
@@ -104,7 +111,7 @@ export const createProject = async (data: {
     }
   }
 
-  return { ...newProject, members, creator: creator ?? null };
+  return { ...newProject, orgName: orgRow[0]?.name ?? null, members, creator: creator ?? null };
 };
 
 // ─── Get Projects (Scoped) ───────────────────────────────────────────────────
@@ -408,12 +415,19 @@ export const updateProject = async (id: string, data: UpdateProjectData, orgId?:
     await deleteS3Object(oldLogoUrl);
   }
 
-  // Fetch members with user info to return consistent shape
-  const members = await db
-    .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
-    .from(projectMembers)
-    .innerJoin(users, eq(projectMembers.userId, users.id))
-    .where(eq(projectMembers.projectId, id));
+  // Fetch members, org name, and creator in parallel
+  const [members, orgRow] = await Promise.all([
+    db
+      .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+      .from(projectMembers)
+      .innerJoin(users, eq(projectMembers.userId, users.id))
+      .where(eq(projectMembers.projectId, id)),
+    db
+      .select({ name: organizations.name })
+      .from(organizations)
+      .where(eq(organizations.id, result.orgId))
+      .limit(1),
+  ]);
 
   const [creator] = result.createdBy
     ? await db
@@ -437,15 +451,16 @@ export const updateProject = async (id: string, data: UpdateProjectData, orgId?:
     }
   }
 
-  return { ...result, members, creator: creator ?? null };
+  return { ...result, orgName: orgRow[0]?.name ?? null, members, creator: creator ?? null };
 };
 
 // ─── Delete Project ──────────────────────────────────────────────────────────
 
 export const deleteProject = async (id: string, orgId?: string) => {
   const [project] = await db
-    .select()
+    .select({ id: projects.id, orgId: projects.orgId, orgName: organizations.name })
     .from(projects)
+    .leftJoin(organizations, eq(projects.orgId, organizations.id))
     .where(orgId
       ? and(eq(projects.id, id), eq(projects.orgId, orgId), isNull(projects.deletedAt))
       : and(eq(projects.id, id), isNull(projects.deletedAt)));
@@ -473,7 +488,7 @@ export const deleteProject = async (id: string, orgId?: string) => {
     await tx.update(tasks).set({ deletedAt: new Date() }).where(eq(tasks.projectId, id));
   });
 
-  return { message: "Project and associated tasks deleted successfully", orgId: project.orgId };
+  return { message: "Project and associated tasks deleted successfully", orgId: project.orgId, orgName: project.orgName };
 };
 
 // ─── Audit Snapshot ───────────────────────────────────────────────────────────

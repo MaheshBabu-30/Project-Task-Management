@@ -24,7 +24,7 @@ const parseMentionIds = (body: string): string[] => {
 
 const verifyTaskAccess = async (taskId: string, user: User) => {
   const [task] = await db
-    .select({ id: tasks.id, projectId: tasks.projectId })
+    .select({ id: tasks.id, projectId: tasks.projectId, title: tasks.title })
     .from(tasks)
     .where(and(eq(tasks.id, taskId), isNull(tasks.deletedAt)));
 
@@ -124,7 +124,7 @@ export const getComments = async (
   user: User,
   query: CommentQuery
 ) => {
-  await verifyTaskAccess(taskId, user);
+  const task = await verifyTaskAccess(taskId, user);
 
   const { page = 1, limit = 20, order = "asc", authorId } = query;
   const offset = (page - 1) * limit;
@@ -190,7 +190,7 @@ export const getComments = async (
     replies: buildTree(allDescendants, c.id, authorsMap, mentionsMap),
   }));
 
-  return { data, totalRecords: countResult[0]?.total ?? 0 };
+  return { taskTitle: task.title, data, totalRecords: countResult[0]?.total ?? 0 };
 };
 
 // ─── Create Comment ───────────────────────────────────────────────────────────
@@ -297,7 +297,7 @@ export const createComment = async (
     .from(users)
     .where(eq(users.id, user.userId));
 
-  return { ...comment, author: author ?? null, mentions };
+  return { ...comment, taskTitle: task.title, author: author ?? null, mentions };
 };
 
 // ─── Update Comment ───────────────────────────────────────────────────────────
@@ -356,7 +356,7 @@ export const updateComment = async (commentId: string, body: string, user: User)
         .where(eq(users.id, updated.authorId))
     : [null];
 
-  return { ...updated, author: author ?? null };
+  return { ...updated, taskTitle: task.title, author: author ?? null };
 };
 
 // ─── Delete Comment ───────────────────────────────────────────────────────────
