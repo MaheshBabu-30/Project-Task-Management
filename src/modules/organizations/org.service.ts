@@ -137,16 +137,21 @@ export const getOrganizationById = async (orgId: string) => {
 
   if (!org) throw new NotFoundException(ORG_NOT_FOUND);
 
-  const members = await db
-    .select({
-      memberId: orgMembers.id, role: orgMembers.role, joinedAt: orgMembers.joinedAt,
-      userId: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl, status: users.status,
-    })
-    .from(orgMembers)
-    .innerJoin(users, eq(orgMembers.userId, users.id))
-    .where(and(eq(orgMembers.orgId, orgId), isNull(users.deletedAt)));
+  const [members, ownerRow] = await Promise.all([
+    db
+      .select({
+        memberId: orgMembers.id, role: orgMembers.role, joinedAt: orgMembers.joinedAt,
+        userId: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl, status: users.status,
+      })
+      .from(orgMembers)
+      .innerJoin(users, eq(orgMembers.userId, users.id))
+      .where(and(eq(orgMembers.orgId, orgId), isNull(users.deletedAt))),
+    org.ownerId
+      ? db.select({ name: users.name }).from(users).where(eq(users.id, org.ownerId)).limit(1)
+      : Promise.resolve([] as { name: string }[]),
+  ]);
 
-  return { ...org, members };
+  return { ...org, ownerName: org.ownerId ? (ownerRow[0]?.name ?? null) : null, members };
 };
 
 // ─── Assign Admin to Organization ────────────────────────────────────────────

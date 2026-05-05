@@ -1,6 +1,7 @@
 import { db } from "../../config/db.js";
 import { tasks, projects, taskAssignees, projectMembers, users, organizations } from "../../db/schema/index.js";
 import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, sql, gte, lte, type InferSelectModel } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";
 import { createNotification } from "../notifications/notification.service.js";
@@ -8,6 +9,8 @@ import { catchError } from "../../utils/logger.js";
 import type { TaskStatus, TaskPriority } from "../../types/task.types.js";
 import type { UserSummary, PaginationQuery } from "../../types/common.types.js";
 import { ALLOWED_STATUS_TRANSITIONS } from "../../constants/task.constants.js";
+
+const parentTask = alias(tasks, "parent_task");
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type TaskRecord = InferSelectModel<typeof tasks>;
@@ -187,8 +190,8 @@ export const createTask = async (data: {
     return task;
   });
 
-  // Fetch assignees, project title, and creator in parallel
-  const [assignees, projectRow] = await Promise.all([
+  // Fetch assignees, project title, parent task title, and creator in parallel
+  const [assignees, projectRow, parentRow] = await Promise.all([
     db
       .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
       .from(taskAssignees)
@@ -199,6 +202,9 @@ export const createTask = async (data: {
       .from(projects)
       .where(eq(projects.id, newTask.projectId))
       .limit(1),
+    newTask.parentTaskId
+      ? db.select({ title: tasks.title }).from(tasks).where(eq(tasks.id, newTask.parentTaskId)).limit(1)
+      : Promise.resolve([] as { title: string }[]),
   ]);
 
   const [creator] = newTask.createdBy
@@ -208,7 +214,7 @@ export const createTask = async (data: {
         .where(eq(users.id, newTask.createdBy))
     : [null];
 
-  return { ...newTask, projectTitle: projectRow[0]?.title ?? null, assignees, creator: creator ?? null };
+  return { ...newTask, projectTitle: projectRow[0]?.title ?? null, parentTaskTitle: newTask.parentTaskId ? (parentRow[0]?.title ?? null) : null, assignees, creator: creator ?? null };
 };
 
 // ─── Get Tasks (Scoped) ───────────────────────────────────────────────────────
@@ -300,6 +306,7 @@ export const getTasks = async (
       orgId: projects.orgId,
       orgName: organizations.name,
       parentTaskId: tasks.parentTaskId,
+      parentTaskTitle: parentTask.title,
       title: tasks.title,
       description: tasks.description,
       status: tasks.status,
@@ -314,6 +321,7 @@ export const getTasks = async (
     .from(tasks)
     .leftJoin(projects, eq(tasks.projectId, projects.id))
     .leftJoin(organizations, eq(projects.orgId, organizations.id))
+    .leftJoin(parentTask, eq(tasks.parentTaskId, parentTask.id))
     .where(whereCondition)
     .orderBy(orderDirection)
     .limit(limit)
@@ -409,10 +417,11 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
     .select({
       id: tasks.id,
       projectId: tasks.projectId,
-      projectName: projects.title,
+      projectTitle: projects.title,
       orgId: projects.orgId,
       orgName: organizations.name,
       parentTaskId: tasks.parentTaskId,
+      parentTaskTitle: parentTask.title,
       title: tasks.title,
       description: tasks.description,
       status: tasks.status,
@@ -427,6 +436,7 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
     .from(tasks)
     .leftJoin(projects, eq(tasks.projectId, projects.id))
     .leftJoin(organizations, eq(projects.orgId, organizations.id))
+    .leftJoin(parentTask, eq(tasks.parentTaskId, parentTask.id))
     .where(and(eq(tasks.id, id), isNull(tasks.deletedAt)));
 
   if (!task) throw new NotFoundException(M.TASK_NOT_FOUND);
@@ -666,8 +676,8 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
     return { updated, prevStatus: task.status };
   });
 
-  // Fetch assignees, project title, and creator in parallel
-  const [assignees, projectRow] = await Promise.all([
+  // Fetch assignees, project title, parent task title, and creator in parallel
+  const [assignees, projectRow, parentRow] = await Promise.all([
     db
       .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
       .from(taskAssignees)
@@ -678,6 +688,9 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
       .from(projects)
       .where(eq(projects.id, result.projectId))
       .limit(1),
+    result.parentTaskId
+      ? db.select({ title: tasks.title }).from(tasks).where(eq(tasks.id, result.parentTaskId)).limit(1)
+      : Promise.resolve([] as { title: string }[]),
   ]);
 
   const [creator] = result.createdBy
@@ -702,7 +715,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
     }
   }
 
-  return { ...result, projectTitle: projectRow[0]?.title ?? null, assignees, creator: creator ?? null };
+  return { ...result, projectTitle: projectRow[0]?.title ?? null, parentTaskTitle: result.parentTaskId ? (parentRow[0]?.title ?? null) : null, assignees, creator: creator ?? null };
 };
 
 // ─── Update Task Status Only (Developer + Admin) ─────────────────────────────
@@ -839,8 +852,8 @@ export const updateTaskStatus = async (
       .catch(catchError("updateTaskStatus:fetchAssignees"));
   }
 
-  // Fetch assignees, project title, and creator in parallel
-  const [assignees, projectRow] = await Promise.all([
+  // Fetch assignees, project title, parent task title, and creator in parallel
+  const [assignees, projectRow, parentRow] = await Promise.all([
     db
       .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
       .from(taskAssignees)
@@ -851,6 +864,9 @@ export const updateTaskStatus = async (
       .from(projects)
       .where(eq(projects.id, statusResult.projectId))
       .limit(1),
+    statusResult.parentTaskId
+      ? db.select({ title: tasks.title }).from(tasks).where(eq(tasks.id, statusResult.parentTaskId)).limit(1)
+      : Promise.resolve([] as { title: string }[]),
   ]);
 
   const [creator] = statusResult.createdBy
@@ -860,7 +876,7 @@ export const updateTaskStatus = async (
         .where(eq(users.id, statusResult.createdBy))
     : [null];
 
-  return { ...statusResult, projectTitle: projectRow[0]?.title ?? null, assignees, creator: creator ?? null };
+  return { ...statusResult, projectTitle: projectRow[0]?.title ?? null, parentTaskTitle: statusResult.parentTaskId ? (parentRow[0]?.title ?? null) : null, assignees, creator: creator ?? null };
 };
 
 // ─── Soft Delete Task ────────────────────────────────────────────────────────
