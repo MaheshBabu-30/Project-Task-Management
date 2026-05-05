@@ -1,10 +1,14 @@
+import bcrypt from "bcrypt";
+import { randomBytes } from "crypto";
 import { db } from "../../config/db.js";
 import { tasks, projects, taskAssignees, projectMembers, orgMembers, users, organizations } from "../../db/schema/index.js";
-import { eq, and, isNull, inArray, count, sql } from "drizzle-orm";
-import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
+import { eq, ilike, and, isNull, inArray, count, sql, gte, lte } from "drizzle-orm";
+import { ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";
+import { sendWelcomeEmail } from "../../utils/mail.service.js";
+import { logger } from "../../utils/logger.js";
 import type { TaskStatus, TaskPriority } from "../../types/task.types.js";
-import type { ImportTasksBody, ImportProjectBody } from "./data-transfer.schema.js";
+import type { ImportTasksBody, ImportProjectBody, ImportOrgBody, ImportUsersBody } from "./data-transfer.schema.js";
 
 type User = { userId: string; role: string; orgId?: string };
 
@@ -31,7 +35,12 @@ const validateProjectAccess = async (projectId: string, user: User) => {
 
 const validateOrgAccess = async (orgId: string, user: User) => {
   const [org] = await db
-    .select({ id: organizations.id, name: organizations.name })
+    .select({
+      id: organizations.id,
+      name: organizations.name,
+      slug: organizations.slug,
+      description: organizations.description,
+    })
     .from(organizations)
     .where(and(eq(organizations.id, orgId), isNull(organizations.deletedAt)));
 
@@ -68,81 +77,6 @@ const reconcileProjectStatus = async (tx: DbTx, projectId: string) => {
   }
 };
 
-// ─── Shared Export Helper ─────────────────────────────────────────────────────
-
-const fetchTaskTree = async (projectId: string) => {
-  const rootTasks = await db
-    .select({
-      id: tasks.id,
-      title: tasks.title,
-      description: tasks.description,
-      status: tasks.status,
-      priority: tasks.priority,
-      dueDate: tasks.dueDate,
-    })
-    .from(tasks)
-    .where(and(eq(tasks.projectId, projectId), isNull(tasks.parentTaskId), isNull(tasks.deletedAt)));
-
-  if (rootTasks.length === 0) return [];
-
-  const rootTaskIds = rootTasks.map((t) => t.id);
-
-  const subtasks = await db
-    .select({
-      id: tasks.id,
-      parentTaskId: tasks.parentTaskId,
-      title: tasks.title,
-      description: tasks.description,
-      status: tasks.status,
-      priority: tasks.priority,
-      dueDate: tasks.dueDate,
-    })
-    .from(tasks)
-    .where(and(inArray(tasks.parentTaskId, rootTaskIds), isNull(tasks.deletedAt)));
-
-  const subtaskIds = subtasks.map((s) => s.id);
-  const allTaskIds = [...rootTaskIds, ...subtaskIds];
-
-  const allAssignees = await db
-    .select({ taskId: taskAssignees.taskId, email: users.email })
-    .from(taskAssignees)
-    .innerJoin(users, eq(taskAssignees.userId, users.id))
-    .where(and(inArray(taskAssignees.taskId, allTaskIds), isNull(users.deletedAt)));
-
-  const assigneeMap: Record<string, string[]> = {};
-  allAssignees.forEach((a) => {
-    if (!a.taskId) return;
-    if (!assigneeMap[a.taskId]) assigneeMap[a.taskId] = [];
-    assigneeMap[a.taskId]!.push(a.email);
-  });
-
-  const subtaskMap: Record<string, typeof subtasks> = {};
-  subtasks.forEach((s) => {
-    if (!s.parentTaskId) return;
-    if (!subtaskMap[s.parentTaskId]) subtaskMap[s.parentTaskId] = [];
-    subtaskMap[s.parentTaskId]!.push(s);
-  });
-
-  const fmtDate = (d: Date | null) => (d ? d.toISOString().split("T")[0] : null);
-
-  return rootTasks.map((t) => ({
-    title: t.title,
-    description: t.description ?? null,
-    status: t.status,
-    priority: t.priority,
-    dueDate: fmtDate(t.dueDate),
-    assigneeEmails: assigneeMap[t.id] ?? [],
-    subtasks: (subtaskMap[t.id] ?? []).map((s) => ({
-      title: s.title,
-      description: s.description ?? null,
-      status: s.status,
-      priority: s.priority,
-      dueDate: fmtDate(s.dueDate),
-      assigneeEmails: assigneeMap[s.id] ?? [],
-    })),
-  }));
-};
-
 // ─── Shared Import Helper ─────────────────────────────────────────────────────
 
 const resolveEmailsToUserIds = async (orgId: string, emails: string[]): Promise<Record<string, string>> => {
@@ -168,64 +102,353 @@ const resolveEmailsToUserIds = async (orgId: string, emails: string[]): Promise<
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
-export const exportProjectTasks = async (projectId: string, user: User) => {
-  const project = await validateProjectAccess(projectId, user);
-  const taskTree = await fetchTaskTree(projectId);
+// type=organizations — superadmin only
+export const exportOrganizations = async (
+  user: User,
+  filters: { id?: string; name?: string; fromDate?: string; toDate?: string },
+) => {
+  if (user.role !== "superadmin") throw new ForbiddenException(M.ACCESS_DENIED);
 
-  return {
-    exportedAt: new Date().toISOString(),
-    projectId: project.id,
-    projectTitle: project.title,
-    totalTasks: taskTree.length,
-    tasks: taskTree,
-  };
-};
+  const conditions: ReturnType<typeof eq>[] = [isNull(organizations.deletedAt) as any];
+  if (filters.id) conditions.push(eq(organizations.id, filters.id) as any);
+  if (filters.name) conditions.push(ilike(organizations.name, `%${filters.name}%`) as any);
+  if (filters.fromDate) conditions.push(gte(organizations.createdAt, new Date(filters.fromDate)) as any);
+  if (filters.toDate) conditions.push(lte(organizations.createdAt, new Date(filters.toDate)) as any);
 
-export const exportFullProject = async (projectId: string, user: User) => {
-  const project = await validateProjectAccess(projectId, user);
-  const taskTree = await fetchTaskTree(projectId);
-
-  return {
-    exportedAt: new Date().toISOString(),
-    project: {
-      title: project.title,
-      description: project.description ?? null,
-      status: project.status,
-    },
-    totalTasks: taskTree.length,
-    tasks: taskTree,
-  };
-};
-
-export const exportOrgMembers = async (orgId: string, user: User) => {
-  const org = await validateOrgAccess(orgId, user);
-
-  const members = await db
+  const orgList = await db
     .select({
-      name: users.name,
-      email: users.email,
-      role: orgMembers.role,
-      joinedAt: orgMembers.joinedAt,
+      id: organizations.id,
+      name: organizations.name,
+      description: organizations.description,
+      createdAt: organizations.createdAt,
+      ownerName: users.name,
+      ownerEmail: users.email,
     })
+    .from(organizations)
+    .leftJoin(users, eq(organizations.ownerId, users.id))
+    .where(and(...conditions));
+
+  return {
+    message: "Organizations exported successfully",
+    exportedAt: new Date().toISOString(),
+    type: "organizations" as const,
+    filters: { id: filters.id ?? null, name: filters.name ?? null, fromDate: filters.fromDate ?? null, toDate: filters.toDate ?? null },
+    totalOrganizations: orgList.length,
+    organizations: orgList.map((o) => ({
+      id: o.id,
+      name: o.name,
+      description: o.description ?? null,
+      createdAt: o.createdAt?.toISOString() ?? null,
+      owner: o.ownerName ? { name: o.ownerName, email: o.ownerEmail } : null,
+    })),
+  };
+};
+
+// type=projects — admin only, scoped to their org
+export const exportProjects = async (
+  orgId: string,
+  user: User,
+  filters: { id?: string; title?: string; status?: string; fromDate?: string; toDate?: string },
+) => {
+  if (user.role !== "admin") throw new ForbiddenException(M.ACCESS_DENIED);
+  if (user.orgId !== orgId) throw new ForbiddenException(M.ACCESS_DENIED);
+
+  const conditions: ReturnType<typeof eq>[] = [eq(projects.orgId, orgId) as any, isNull(projects.deletedAt) as any];
+  if (filters.id) conditions.push(eq(projects.id, filters.id) as any);
+  if (filters.title) conditions.push(ilike(projects.title, `%${filters.title}%`) as any);
+  if (filters.status) conditions.push(eq(projects.status, filters.status as any) as any);
+  if (filters.fromDate) conditions.push(gte(projects.createdAt, new Date(filters.fromDate)) as any);
+  if (filters.toDate) conditions.push(lte(projects.createdAt, new Date(filters.toDate)) as any);
+
+  const projectList = await db
+    .select({ id: projects.id, title: projects.title, description: projects.description, status: projects.status, createdAt: projects.createdAt })
+    .from(projects)
+    .where(and(...conditions));
+
+  if (filters.id && projectList.length === 0) throw new NotFoundException(M.PROJECT_NOT_FOUND);
+
+  const projectIds = projectList.map((p) => p.id);
+  const membersMap: Record<string, { name: string; email: string }[]> = {};
+
+  if (projectIds.length > 0) {
+    const allMembers = await db
+      .select({ projectId: projectMembers.projectId, name: users.name, email: users.email })
+      .from(projectMembers)
+      .innerJoin(users, eq(projectMembers.userId, users.id))
+      .where(and(inArray(projectMembers.projectId, projectIds), isNull(users.deletedAt)));
+
+    allMembers.forEach((m) => {
+      if (!m.projectId) return;
+      if (!membersMap[m.projectId]) membersMap[m.projectId] = [];
+      membersMap[m.projectId]!.push({ name: m.name, email: m.email });
+    });
+  }
+
+  return {
+    message: "Projects exported successfully",
+    exportedAt: new Date().toISOString(),
+    type: "projects" as const,
+    filters: { id: filters.id ?? null, title: filters.title ?? null, status: filters.status ?? null, fromDate: filters.fromDate ?? null, toDate: filters.toDate ?? null },
+    totalProjects: projectList.length,
+    projects: projectList.map((p) => ({
+      id: p.id,
+      title: p.title,
+      description: p.description ?? null,
+      status: p.status,
+      createdAt: p.createdAt?.toISOString() ?? null,
+      assignedMembers: membersMap[p.id] ?? [],
+    })),
+  };
+};
+
+// type=tasks — admin only, scoped to their org
+export const exportTasks = async (
+  orgId: string,
+  user: User,
+  filters: { id?: string; title?: string; projectId?: string; status?: TaskStatus; priority?: TaskPriority; dueDateFrom?: string; dueDateTo?: string },
+) => {
+  if (user.role !== "admin") throw new ForbiddenException(M.ACCESS_DENIED);
+  if (user.orgId !== orgId) throw new ForbiddenException(M.ACCESS_DENIED);
+
+  const fmtDate = (d: Date | null) => (d ? d.toISOString().split("T")[0] : null);
+
+  const activeFilters = {
+    id: filters.id ?? null,
+    title: filters.title ?? null,
+    projectId: filters.projectId ?? null,
+    status: filters.status ?? null,
+    priority: filters.priority ?? null,
+    dueDateFrom: filters.dueDateFrom ?? null,
+    dueDateTo: filters.dueDateTo ?? null,
+  };
+
+  const empty = () => ({ message: "Tasks exported successfully", exportedAt: new Date().toISOString(), type: "tasks" as const, filters: activeFilters, totalTasks: 0, tasks: [] as unknown[] });
+
+  if (filters.projectId) {
+    const [proj] = await db.select({ id: projects.id }).from(projects)
+      .where(and(eq(projects.id, filters.projectId), eq(projects.orgId, orgId), isNull(projects.deletedAt)));
+    if (!proj) throw new NotFoundException(M.PROJECT_NOT_FOUND);
+  }
+
+  const projectList = await db
+    .select({ id: projects.id, title: projects.title })
+    .from(projects)
+    .where(and(eq(projects.orgId, orgId), isNull(projects.deletedAt), filters.projectId ? eq(projects.id, filters.projectId) : undefined));
+
+  if (projectList.length === 0) return empty();
+
+  const projectMap: Record<string, string> = {};
+  projectList.forEach((p) => { projectMap[p.id] = p.title; });
+  const projectIds = projectList.map((p) => p.id);
+
+  const taskConditions: ReturnType<typeof eq>[] = [
+    inArray(tasks.projectId, projectIds) as any,
+    isNull(tasks.parentTaskId) as any,
+    isNull(tasks.deletedAt) as any,
+  ];
+  if (filters.id) taskConditions.push(eq(tasks.id, filters.id) as any);
+  if (filters.title) taskConditions.push(ilike(tasks.title, `%${filters.title}%`) as any);
+  if (filters.status) taskConditions.push(eq(tasks.status, filters.status) as any);
+  if (filters.priority) taskConditions.push(eq(tasks.priority, filters.priority) as any);
+  if (filters.dueDateFrom) taskConditions.push(gte(tasks.dueDate, new Date(filters.dueDateFrom)) as any);
+  if (filters.dueDateTo) taskConditions.push(lte(tasks.dueDate, new Date(filters.dueDateTo)) as any);
+
+  const taskList = await db
+    .select({ id: tasks.id, projectId: tasks.projectId, title: tasks.title, status: tasks.status, priority: tasks.priority, dueDate: tasks.dueDate })
+    .from(tasks)
+    .where(and(...taskConditions));
+
+  if (taskList.length === 0) return empty();
+
+  const taskIds = taskList.map((t) => t.id);
+  const assigneeRows = await db
+    .select({ taskId: taskAssignees.taskId, name: users.name, email: users.email })
+    .from(taskAssignees)
+    .innerJoin(users, eq(taskAssignees.userId, users.id))
+    .where(and(inArray(taskAssignees.taskId, taskIds), isNull(users.deletedAt)));
+
+  const assigneeMap: Record<string, { name: string; email: string }[]> = {};
+  assigneeRows.forEach((a) => {
+    if (!a.taskId) return;
+    if (!assigneeMap[a.taskId]) assigneeMap[a.taskId] = [];
+    assigneeMap[a.taskId]!.push({ name: a.name, email: a.email });
+  });
+
+  return {
+    message: "Tasks exported successfully",
+    exportedAt: new Date().toISOString(),
+    type: "tasks" as const,
+    filters: activeFilters,
+    totalTasks: taskList.length,
+    tasks: taskList.map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      priority: t.priority,
+      projectTitle: projectMap[t.projectId] ?? null,
+      dueDate: fmtDate(t.dueDate),
+      assignedMembers: assigneeMap[t.id] ?? [],
+    })),
+  };
+};
+
+// type=users — superadmin (admins only, optional orgId filter) or admin (developers in their org)
+export const exportUsers = async (
+  user: User,
+  filters: { id?: string; name?: string; status?: string; orgId?: string },
+) => {
+  if (user.role === "superadmin") {
+    const conditions: ReturnType<typeof eq>[] = [eq(orgMembers.role, "admin") as any, isNull(users.deletedAt) as any];
+    if (filters.orgId) conditions.push(eq(orgMembers.orgId, filters.orgId) as any);
+    if (filters.id) conditions.push(eq(users.id, filters.id) as any);
+    if (filters.name) conditions.push(ilike(users.name, `%${filters.name}%`) as any);
+    if (filters.status) conditions.push(eq(users.status, filters.status as any) as any);
+
+    const memberList = await db
+      .select({ id: users.id, name: users.name, email: users.email, role: orgMembers.role, status: users.status, phone: users.phone, createdAt: users.createdAt })
+      .from(orgMembers)
+      .innerJoin(users, eq(orgMembers.userId, users.id))
+      .where(and(...conditions));
+
+    return {
+      message: "Users exported successfully",
+      exportedAt: new Date().toISOString(),
+      type: "users" as const,
+      filters: { id: filters.id ?? null, name: filters.name ?? null, orgId: filters.orgId ?? null, status: filters.status ?? null },
+      totalUsers: memberList.length,
+      users: memberList.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        status: u.status,
+        phone: u.phone ?? null,
+        createdAt: u.createdAt?.toISOString() ?? null,
+      })),
+    };
+  }
+
+  if (user.role !== "admin") throw new ForbiddenException(M.ACCESS_DENIED);
+  const orgId = user.orgId!;
+
+  const conditions: ReturnType<typeof eq>[] = [
+    eq(orgMembers.orgId, orgId) as any,
+    eq(orgMembers.role, "developer") as any,
+    isNull(users.deletedAt) as any,
+  ];
+  if (filters.id) conditions.push(eq(users.id, filters.id) as any);
+  if (filters.name) conditions.push(ilike(users.name, `%${filters.name}%`) as any);
+  if (filters.status) conditions.push(eq(users.status, filters.status as any) as any);
+
+  const memberList = await db
+    .select({ id: users.id, name: users.name, email: users.email, role: orgMembers.role, status: users.status, phone: users.phone, createdAt: users.createdAt })
     .from(orgMembers)
     .innerJoin(users, eq(orgMembers.userId, users.id))
-    .where(and(eq(orgMembers.orgId, orgId), isNull(users.deletedAt)));
+    .where(and(...conditions));
 
   return {
+    message: "Users exported successfully",
     exportedAt: new Date().toISOString(),
-    orgId: org.id,
-    orgName: org.name,
-    totalMembers: members.length,
-    members: members.map((m) => ({
-      name: m.name,
-      email: m.email,
-      role: m.role,
-      joinedAt: m.joinedAt?.toISOString() ?? null,
+    type: "users" as const,
+    filters: { id: filters.id ?? null, name: filters.name ?? null, status: filters.status ?? null },
+    totalUsers: memberList.length,
+    users: memberList.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      status: u.status,
+      phone: u.phone ?? null,
+      createdAt: u.createdAt?.toISOString() ?? null,
     })),
   };
 };
 
 // ─── Imports ──────────────────────────────────────────────────────────────────
+
+export const importOrganization = async (data: ImportOrgBody) => {
+  const slugs = data.orgs.map((o) => o.slug);
+  const existingRows = await db
+    .select({ slug: organizations.slug })
+    .from(organizations)
+    .where(inArray(organizations.slug, slugs));
+
+  const existingSlugs = new Set(existingRows.map((r) => r.slug));
+  const toCreate = data.orgs.filter((o) => !existingSlugs.has(o.slug));
+  const skippedSlugs = data.orgs.filter((o) => existingSlugs.has(o.slug)).map((o) => o.slug);
+
+  if (toCreate.length === 0) {
+    return { message: "Organizations imported successfully", imported: 0, skipped: skippedSlugs.length, skippedSlugs, orgs: [] };
+  }
+
+  const created = await db.transaction(async (tx) => {
+    const results: { orgId: string; orgName: string; description: string | null }[] = [];
+    for (const orgData of toCreate) {
+      const [org] = await tx
+        .insert(organizations)
+        .values({ name: orgData.name, slug: orgData.slug, description: orgData.description ?? null })
+        .returning({ id: organizations.id });
+      if (!org) throw new InternalServerException(M.IMPORT_ORG_FAILED);
+      results.push({ orgId: org.id, orgName: orgData.name, description: orgData.description ?? null });
+    }
+    return results;
+  });
+
+  return {
+    message: "Organizations imported successfully",
+    imported: created.length,
+    skipped: skippedSlugs.length,
+    skippedSlugs,
+    orgs: created,
+  };
+};
+
+export const importProjectIntoOrg = async (data: ImportProjectBody, user: User) => {
+  if (!user.orgId) throw new ForbiddenException("No organization associated with your account");
+  const orgId = user.orgId;
+
+  await validateOrgAccess(orgId, user);
+
+  const allEmails = [...new Set(data.projects.flatMap((p) => p.assigneeEmails ?? []))];
+  const emailToUserId = await resolveEmailsToUserIds(orgId, allEmails);
+
+  const created = await db.transaction(async (tx) => {
+    const results: { projectId: string; projectTitle: string; description: string | null; skippedAssigneeEmails: string[] }[] = [];
+
+    for (const projectData of data.projects) {
+      const assigneeEmails = projectData.assigneeEmails ?? [];
+      const skippedAssigneeEmails = assigneeEmails.filter((e) => !emailToUserId[e]);
+      const assigneeIds = [...new Set(assigneeEmails.map((e) => emailToUserId[e]).filter((id): id is string => !!id))];
+
+      const [project] = await tx
+        .insert(projects)
+        .values({
+          orgId,
+          title: projectData.title,
+          description: projectData.description ?? null,
+          status: "active",
+          createdBy: user.userId,
+        })
+        .returning({ id: projects.id });
+
+      if (!project) throw new InternalServerException(M.PROJECT_CREATE_FAILED);
+
+      if (assigneeIds.length > 0) {
+        await tx.insert(projectMembers).values(assigneeIds.map((userId) => ({ projectId: project.id, userId }))).onConflictDoNothing();
+      }
+
+      results.push({ projectId: project.id, projectTitle: projectData.title, description: projectData.description ?? null, skippedAssigneeEmails });
+    }
+
+    return results;
+  });
+
+  return {
+    message: "Projects imported successfully",
+    imported: created.length,
+    projects: created,
+  };
+};
 
 export const importTasksIntoProject = async (
   projectId: string,
@@ -235,30 +458,13 @@ export const importTasksIntoProject = async (
   const project = await validateProjectAccess(projectId, user);
   const orgId = project.orgId;
 
-  const allEmails = [
-    ...new Set(
-      taskList.flatMap((t) => [
-        ...(t.assigneeEmails ?? []),
-        ...(t.subtasks ?? []).flatMap((s) => s.assigneeEmails ?? []),
-      ]),
-    ),
-  ];
+  const allEmails = [...new Set(taskList.flatMap((t) => t.assigneeEmails ?? []))];
   const emailToUserId = await resolveEmailsToUserIds(orgId, allEmails);
+  const skippedAssigneeEmails = [...new Set(
+    taskList.flatMap((t) => (t.assigneeEmails ?? []).filter((e) => !emailToUserId[e])),
+  )];
 
-  let taskCount = 0;
-  let subtaskCount = 0;
-
-  // Validate business rules before touching the DB
-  for (const taskData of taskList) {
-    if (taskData.status === "completed") {
-      const incomplete = (taskData.subtasks ?? []).filter((s) => (s.status ?? "to_do") !== "completed");
-      if (incomplete.length > 0) {
-        throw new BadRequestException(
-          `Task "${taskData.title}": cannot import as completed — ${incomplete.length} subtask(s) are not completed`,
-        );
-      }
-    }
-  }
+  const createdTasks: { taskId: string; title: string; priority: string; dueDate: string | null }[] = [];
 
   await db.transaction(async (tx) => {
     for (const taskData of taskList) {
@@ -270,7 +476,6 @@ export const importTasksIntoProject = async (
         ),
       ];
 
-      const taskStatus = (taskData.status ?? "to_do") as TaskStatus;
       const [task] = await tx
         .insert(tasks)
         .values({
@@ -278,188 +483,119 @@ export const importTasksIntoProject = async (
           title: taskData.title,
           description: taskData.description ?? null,
           priority: (taskData.priority ?? "medium") as TaskPriority,
-          status: taskStatus,
-          completedAt: taskStatus === "completed" ? new Date() : null,
+          status: "to_do",
           dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
           createdBy: user.userId,
         })
         .returning({ id: tasks.id });
 
       if (!task) throw new InternalServerException(M.TASK_CREATE_FAILED);
-      taskCount++;
 
       if (assigneeIds.length > 0) {
         await tx.insert(taskAssignees).values(assigneeIds.map((userId) => ({ taskId: task.id, userId })));
         await tx.insert(projectMembers).values(assigneeIds.map((userId) => ({ projectId, userId }))).onConflictDoNothing();
       }
 
-      for (const subtask of taskData.subtasks ?? []) {
-        const stAssigneeIds = [
-          ...new Set(
-            (subtask.assigneeEmails ?? [])
-              .map((e) => emailToUserId[e])
-              .filter((id): id is string => !!id),
-          ),
-        ];
-
-        const subtaskStatus = (subtask.status ?? "to_do") as TaskStatus;
-        const [st] = await tx
-          .insert(tasks)
-          .values({
-            projectId,
-            parentTaskId: task.id,
-            title: subtask.title,
-            description: subtask.description ?? null,
-            priority: (subtask.priority ?? "medium") as TaskPriority,
-            status: subtaskStatus,
-            completedAt: subtaskStatus === "completed" ? new Date() : null,
-            dueDate: subtask.dueDate ? new Date(subtask.dueDate) : null,
-            createdBy: user.userId,
-          })
-          .returning({ id: tasks.id });
-
-        if (!st) throw new InternalServerException(M.TASK_CREATE_FAILED);
-        subtaskCount++;
-
-        if (stAssigneeIds.length > 0) {
-          await tx.insert(taskAssignees).values(stAssigneeIds.map((userId) => ({ taskId: st.id, userId })));
-          await tx.insert(projectMembers).values(stAssigneeIds.map((userId) => ({ projectId, userId }))).onConflictDoNothing();
-        }
-      }
+      createdTasks.push({
+        taskId: task.id,
+        title: taskData.title,
+        priority: taskData.priority ?? "medium",
+        dueDate: taskData.dueDate ?? null,
+      });
     }
 
     await reconcileProjectStatus(tx, projectId);
   });
 
-  return { tasksImported: taskCount, subtasksImported: subtaskCount };
+  return {
+    message: "Tasks imported successfully",
+    tasksImported: createdTasks.length,
+    skipped: 0,
+    skippedAssigneeEmails,
+    tasks: createdTasks,
+  };
 };
 
-export const importProjectIntoOrg = async (
-  orgId: string,
-  data: ImportProjectBody,
+export const importUsersIntoOrg = async (
+  userList: ImportUsersBody["users"],
   user: User,
+  orgId?: string,
 ) => {
-  await validateOrgAccess(orgId, user);
+  const assignedRole = user.role === "superadmin" ? "admin" : "developer";
 
-  const taskList = data.tasks ?? [];
-
-  const allEmails = [
-    ...new Set(
-      taskList.flatMap((t) => [
-        ...(t.assigneeEmails ?? []),
-        ...(t.subtasks ?? []).flatMap((s) => s.assigneeEmails ?? []),
-      ]),
-    ),
-  ];
-  const emailToUserId = await resolveEmailsToUserIds(orgId, allEmails);
-
-  // Validate business rules before touching the DB
-  for (const taskData of taskList) {
-    if (taskData.status === "completed") {
-      const incomplete = (taskData.subtasks ?? []).filter((s) => (s.status ?? "to_do") !== "completed");
-      if (incomplete.length > 0) {
-        throw new BadRequestException(
-          `Task "${taskData.title}": cannot import as completed — ${incomplete.length} subtask(s) are not completed`,
-        );
-      }
-    }
+  if (user.role === "admin") {
+    if (!orgId) throw new ForbiddenException("No organization associated with your account");
+    await validateOrgAccess(orgId, user);
   }
 
-  let taskCount = 0;
-  let subtaskCount = 0;
-  let createdProjectId = "";
-
-  await db.transaction(async (tx) => {
-    const [project] = await tx
-      .insert(projects)
-      .values({
-        orgId,
-        title: data.project.title,
-        description: data.project.description ?? null,
-        status: (data.project.status ?? "active") as "active" | "on_hold" | "completed",
-        createdBy: user.userId,
-      })
-      .returning({ id: projects.id });
-
-    if (!project) throw new InternalServerException(M.PROJECT_CREATE_FAILED);
-    createdProjectId = project.id;
-
-    for (const taskData of taskList) {
-      const assigneeIds = [
-        ...new Set(
-          (taskData.assigneeEmails ?? [])
-            .map((e) => emailToUserId[e])
-            .filter((id): id is string => !!id),
-        ),
-      ];
-
-      const taskStatus = (taskData.status ?? "to_do") as TaskStatus;
-      const [task] = await tx
-        .insert(tasks)
-        .values({
-          projectId: project.id,
-          title: taskData.title,
-          description: taskData.description ?? null,
-          priority: (taskData.priority ?? "medium") as TaskPriority,
-          status: taskStatus,
-          completedAt: taskStatus === "completed" ? new Date() : null,
-          dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
-          createdBy: user.userId,
-        })
-        .returning({ id: tasks.id });
-
-      if (!task) throw new InternalServerException(M.TASK_CREATE_FAILED);
-      taskCount++;
-
-      if (assigneeIds.length > 0) {
-        await tx.insert(taskAssignees).values(assigneeIds.map((userId) => ({ taskId: task.id, userId })));
-        await tx.insert(projectMembers).values(assigneeIds.map((userId) => ({ projectId: project.id, userId }))).onConflictDoNothing();
-      }
-
-      for (const subtask of taskData.subtasks ?? []) {
-        const stAssigneeIds = [
-          ...new Set(
-            (subtask.assigneeEmails ?? [])
-              .map((e) => emailToUserId[e])
-              .filter((id): id is string => !!id),
-          ),
-        ];
-
-        const subtaskStatus = (subtask.status ?? "to_do") as TaskStatus;
-        const [st] = await tx
-          .insert(tasks)
-          .values({
-            projectId: project.id,
-            parentTaskId: task.id,
-            title: subtask.title,
-            description: subtask.description ?? null,
-            priority: (subtask.priority ?? "medium") as TaskPriority,
-            status: subtaskStatus,
-            completedAt: subtaskStatus === "completed" ? new Date() : null,
-            dueDate: subtask.dueDate ? new Date(subtask.dueDate) : null,
-            createdBy: user.userId,
-          })
-          .returning({ id: tasks.id });
-
-        if (!st) throw new InternalServerException(M.TASK_CREATE_FAILED);
-        subtaskCount++;
-
-        if (stAssigneeIds.length > 0) {
-          await tx.insert(taskAssignees).values(stAssigneeIds.map((userId) => ({ taskId: st.id, userId })));
-          await tx.insert(projectMembers).values(stAssigneeIds.map((userId) => ({ projectId: project.id, userId }))).onConflictDoNothing();
-        }
-      }
-    }
-
-    if (taskList.length > 0) {
-      await reconcileProjectStatus(tx, createdProjectId);
-    }
+  const seen = new Set<string>();
+  const deduped = userList.filter((u) => {
+    const key = u.email.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
 
+  const emails = deduped.map((u) => u.email);
+  const existingRows = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(inArray(users.email, emails));
+
+  const existingEmails = new Set(existingRows.map((u) => u.email.toLowerCase()));
+  const toCreate = deduped.filter((u) => !existingEmails.has(u.email.toLowerCase()));
+  const skippedEmails = deduped
+    .filter((u) => existingEmails.has(u.email.toLowerCase()))
+    .map((u) => u.email);
+
+  if (toCreate.length === 0) {
+    return { message: "Users imported successfully", imported: 0, skipped: skippedEmails.length, skippedEmails, users: [] };
+  }
+
+  const prepared = await Promise.all(
+    toCreate.map(async (u) => {
+      const tempPassword = randomBytes(8).toString("hex");
+      const passwordHash = await bcrypt.hash(tempPassword, 10);
+      return { name: u.name, email: u.email, tempPassword, passwordHash };
+    }),
+  );
+
+  const created = await db.transaction(async (tx) => {
+    const results: { id: string; email: string; name: string; tempPassword: string }[] = [];
+
+    for (const userData of prepared) {
+      const [newUser] = await tx
+        .insert(users)
+        .values({
+          name: userData.name,
+          email: userData.email,
+          passwordHash: userData.passwordHash,
+          role: assignedRole,
+        })
+        .returning({ id: users.id, email: users.email, name: users.name });
+
+      if (!newUser) throw new InternalServerException(M.USER_CREATE_FAILED_IMPORT);
+
+      if (user.role === "admin" && orgId) {
+        await tx.insert(orgMembers).values({ orgId, userId: newUser.id, role: "developer" });
+      }
+
+      results.push({ ...newUser, tempPassword: userData.tempPassword });
+    }
+
+    return results;
+  });
+
+  for (const u of created) {
+    const sent = await sendWelcomeEmail(u.email, u.name, u.tempPassword);
+    if (!sent) logger.warn(`Welcome email not sent to ${u.email}`, "data-transfer");
+  }
+
   return {
-    projectId: createdProjectId,
-    projectTitle: data.project.title,
-    tasksImported: taskCount,
-    subtasksImported: subtaskCount,
+    message: "Users imported successfully",
+    imported: created.length,
+    skipped: skippedEmails.length,
+    skippedEmails,
+    users: created.map((u) => ({ userId: u.id, name: u.name, email: u.email, role: assignedRole })),
   };
 };
