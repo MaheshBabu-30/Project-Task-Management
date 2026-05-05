@@ -285,6 +285,7 @@ export const exportTasks = async (
       title: t.title,
       status: t.status,
       priority: t.priority,
+      projectId: t.projectId,
       projectTitle: projectMap[t.projectId] ?? null,
       dueDate: fmtDate(t.dueDate),
       assignedMembers: assigneeMap[t.id] ?? [],
