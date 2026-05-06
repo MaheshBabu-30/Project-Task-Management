@@ -98,6 +98,7 @@ const buildDescription = (
       return name ? `${actor} created user account for '${name}'` : `${actor} created a new user account`;
     }
     case "org.created":     return `${actor} created ${orgRef}`;
+    case "org.imported":    return `${actor} imported ${orgRef}`;
     case "org.deleted":     return `${actor} deleted ${orgRef}`;
     case "org.admin_assigned": {
       const name = after?.userName as string | undefined;
@@ -144,6 +145,18 @@ const buildDescription = (
 
     case "auth.login":  return `${actor} logged in`;
     case "auth.logout": return `${actor} logged out`;
+
+    case "export.projects": return `${actor} exported ${(after?.totalProjects as number | undefined) ?? 0} projects`;
+    case "export.tasks":    return `${actor} exported ${(after?.totalTasks as number | undefined) ?? 0} tasks`;
+    case "export.users":    return `${actor} exported ${(after?.totalUsers as number | undefined) ?? 0} developers`;
+
+    case "import.projects": return `${actor} imported ${(after?.imported as number | undefined) ?? 0} projects into the organization`;
+    case "import.tasks":    return `${actor} imported ${(after?.imported as number | undefined) ?? 0} tasks into the project`;
+    case "import.users": {
+      const skipped = (after?.skipped as number | undefined) ?? 0;
+      const base = `${actor} imported ${(after?.imported as number | undefined) ?? 0} developers into the organization`;
+      return skipped > 0 ? `${base} (${skipped} skipped)` : base;
+    }
 
     default:
       return `${actor} performed: ${action}`;
