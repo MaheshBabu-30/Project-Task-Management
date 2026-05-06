@@ -142,6 +142,9 @@ const buildDescription = (
       return `${actor} updated ${projectRef}: ${parts.join(", ")} and ${last}`;
     }
 
+    case "auth.login":  return `${actor} logged in`;
+    case "auth.logout": return `${actor} logged out`;
+
     default:
       return `${actor} performed: ${action}`;
   }
@@ -151,19 +154,15 @@ const buildDescription = (
 
 export const getAuditLogs = async (
   query: AuditLogQuery,
-  scopedOrgId?: string  // set for admin — restricts to their org
+  scopedOrgId: string,
 ) => {
-  const { page = 1, limit = 20, id, orgId, actorId, entityId, entityType, action, from, to, sortBy = "createdAt", order = "desc" } = query;
+  const { page = 1, limit = 20, id, actorId, entityId, entityType, action, from, to, sortBy = "createdAt", order = "desc" } = query;
   const offset = (page - 1) * limit;
 
   type ActorSummary = { id: string; name: string | null; email: string };
   type OrgSummary = { id: string; name: string; slug: string };
 
-  const filters: SQL<unknown>[] = [];
-
-  // Admins are always locked to their org
-  const targetOrgId = scopedOrgId ?? orgId;
-  if (targetOrgId) filters.push(eq(auditLogs.orgId, targetOrgId));
+  const filters: SQL<unknown>[] = [eq(auditLogs.orgId, scopedOrgId)];
 
   if (id) filters.push(eq(auditLogs.id, id));
   if (actorId) filters.push(eq(auditLogs.actorId, actorId));
