@@ -19,7 +19,7 @@ router.patch("/me", updateMe);
 router.get("/", getUsersList);
 router.get("/:id", getUserDetails);
 
-// Only admins can toggle user status
-router.patch("/:id/status", roleMiddleware(["admin"]), toggleUserStatus);
+// Superadmin can toggle admin status; admin can toggle developer status
+router.patch("/:id/status", roleMiddleware(["superadmin", "admin"]), toggleUserStatus);
 
 export default router;
