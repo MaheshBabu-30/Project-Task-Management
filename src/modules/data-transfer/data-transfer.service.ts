@@ -414,11 +414,13 @@ export const importProjectIntoOrg = async (data: ImportProjectBody, user: User) 
   const emailToUserId = await resolveEmailsToUserIds(orgId, allEmails);
 
   const created = await db.transaction(async (tx) => {
-    const results: { projectId: string; projectTitle: string; description: string | null; skippedAssigneeEmails: string[] }[] = [];
+    const results: { projectId: string; projectTitle: string; description: string | null; skippedAssignees: { email: string; reason: string }[] }[] = [];
 
     for (const projectData of data.projects) {
       const assigneeEmails = projectData.assigneeEmails ?? [];
-      const skippedAssigneeEmails = assigneeEmails.filter((e) => !emailToUserId[e]);
+      const skippedAssignees = assigneeEmails
+        .filter((e) => !emailToUserId[e])
+        .map((email) => ({ email, reason: "Not a member of this organization" }));
       const assigneeIds = [...new Set(assigneeEmails.map((e) => emailToUserId[e]).filter((id): id is string => !!id))];
 
       const [project] = await tx
@@ -438,7 +440,7 @@ export const importProjectIntoOrg = async (data: ImportProjectBody, user: User) 
         await tx.insert(projectMembers).values(assigneeIds.map((userId) => ({ projectId: project.id, userId }))).onConflictDoNothing();
       }
 
-      results.push({ projectId: project.id, projectTitle: projectData.title, description: projectData.description ?? null, skippedAssigneeEmails });
+      results.push({ projectId: project.id, projectTitle: projectData.title, description: projectData.description ?? null, skippedAssignees });
     }
 
     return results;
@@ -461,9 +463,10 @@ export const importTasksIntoProject = async (
 
   const allEmails = [...new Set(taskList.flatMap((t) => t.assigneeEmails ?? []))];
   const emailToUserId = await resolveEmailsToUserIds(orgId, allEmails);
-  const skippedAssigneeEmails = [...new Set(
-    taskList.flatMap((t) => (t.assigneeEmails ?? []).filter((e) => !emailToUserId[e])),
-  )];
+
+  const skippedAssignees = allEmails
+    .filter((e) => !emailToUserId[e])
+    .map((email) => ({ email, reason: "Not a member of this organization" }));
 
   const createdTasks: { taskId: string; title: string; priority: string; dueDate: string | null }[] = [];
 
@@ -512,7 +515,7 @@ export const importTasksIntoProject = async (
     message: "Tasks imported successfully",
     tasksImported: createdTasks.length,
     skipped: 0,
-    skippedAssigneeEmails,
+    skippedAssignees,
     tasks: createdTasks,
   };
 };
@@ -545,12 +548,12 @@ export const importUsersIntoOrg = async (
 
   const existingEmails = new Set(existingRows.map((u) => u.email.toLowerCase()));
   const toCreate = deduped.filter((u) => !existingEmails.has(u.email.toLowerCase()));
-  const skippedEmails = deduped
+  const skippedUsers = deduped
     .filter((u) => existingEmails.has(u.email.toLowerCase()))
-    .map((u) => u.email);
+    .map((u) => ({ email: u.email, reason: "Email already exist" }));
 
   if (toCreate.length === 0) {
-    return { message: "Users imported successfully", imported: 0, skipped: skippedEmails.length, skippedEmails, users: [] };
+    return { message: "Users imported successfully", imported: 0, skipped: skippedUsers.length, skippedUsers, users: [] };
   }
 
   const prepared = await Promise.all(
@@ -595,8 +598,8 @@ export const importUsersIntoOrg = async (
   return {
     message: "Users imported successfully",
     imported: created.length,
-    skipped: skippedEmails.length,
-    skippedEmails,
+    skipped: skippedUsers.length,
+    skippedUsers,
     users: created.map((u) => ({ userId: u.id, name: u.name, email: u.email, role: assignedRole })),
   };
 };
