@@ -1,4 +1,4 @@
-import { object, string, optional, nullish, pipe, array, minLength, maxLength, regex, nonEmpty, check, trim, email, picklist } from "valibot";
+import { object, string, optional, nullish, pipe, array, minLength, maxLength, regex, nonEmpty, check, trim, email, picklist, transform } from "valibot";
 import type { InferOutput } from "valibot";
 import { taskPriorityEnum } from "../../db/schema/index.js";
 
@@ -6,7 +6,7 @@ import { taskPriorityEnum } from "../../db/schema/index.js";
 
 const importTaskItemSchema = object({
   title: pipe(string(), trim(), nonEmpty("Title is required"), maxLength(300, "Title must be at most 300 characters")),
-  description: nullish(pipe(string(), trim(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
+  description: nullish(pipe(string(), trim(), maxLength(5000, "Description too long"), transform((v): string | null => v === "" ? null : v))),
   priority: optional(picklist(taskPriorityEnum.enumValues, "Priority must be low, medium, high, or urgent")),
   dueDate: nullish(pipe(
     string(), trim(), nonEmpty("Due date cannot be empty"),
@@ -30,7 +30,7 @@ export const importProjectBodySchema = object({
   projects: pipe(
     array(object({
       title: pipe(string(), trim(), nonEmpty("Title is required"), maxLength(200, "Title must be at most 200 characters")),
-      description: nullish(pipe(string(), trim(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
+      description: nullish(pipe(string(), trim(), maxLength(5000, "Description too long"), transform((v): string | null => v === "" ? null : v))),
       assigneeEmails: optional(array(pipe(string(), trim(), email("Invalid email format")))),
     })),
     minLength(1, "At least one project is required"),
@@ -48,7 +48,7 @@ export const importOrgBodySchema = object({
         string(), trim(), nonEmpty("Slug is required"), maxLength(100, "Slug must be at most 100 characters"),
         regex(/^[a-z0-9-]+$/, "Slug can only contain lowercase letters, numbers, and hyphens"),
       ),
-      description: nullish(pipe(string(), trim(), nonEmpty("Description cannot be empty"), maxLength(5000, "Description too long"))),
+      description: nullish(pipe(string(), trim(), maxLength(5000, "Description too long"), transform((v): string | null => v === "" ? null : v))),
     })),
     minLength(1, "At least one organization is required"),
     maxLength(100, "Cannot import more than 100 organizations at once"),
