@@ -1,8 +1,10 @@
 import { defineConfig } from "drizzle-kit";
 import "dotenv/config";
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 export default defineConfig({
-  schema: "./src/db/schema.ts",
+  schema: "./src/db/schema/*.ts",
   out: "./drizzle/migrations",
   dialect: "postgresql",
   dbCredentials: {
