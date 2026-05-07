@@ -48,21 +48,23 @@ export const getAllOrganizations = async (query?: OrgQuery) => {
   const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
   const [orgs, countResult] = await Promise.all([
-    db.select({ id: organizations.id, name: organizations.name, slug: organizations.slug, ownerId: organizations.ownerId, createdAt: organizations.createdAt })
+    db.select({ id: organizations.id, name: organizations.name, slug: organizations.slug, createdAt: organizations.createdAt })
       .from(organizations).where(whereCondition).orderBy(orderDirection).limit(limit).offset(offset),
     db.select({ total: count() }).from(organizations).where(whereCondition),
   ]);
 
-  const ownerIds = orgs.map((o) => o.ownerId).filter(Boolean) as string[];
-  const ownersMap: Record<string, UserSummary> = {};
-  if (ownerIds.length > 0) {
-    const owners = await db
-      .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
-      .from(users).where(inArray(users.id, ownerIds));
-    owners.forEach((o) => { ownersMap[o.id] = o; });
+  const orgIds = orgs.map((o) => o.id);
+  const adminMap: Record<string, UserSummary> = {};
+  if (orgIds.length > 0) {
+    const adminRows = await db
+      .select({ orgId: orgMembers.orgId, id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+      .from(orgMembers)
+      .innerJoin(users, eq(orgMembers.userId, users.id))
+      .where(and(inArray(orgMembers.orgId, orgIds), eq(orgMembers.role, "admin"), isNull(users.deletedAt)));
+    adminRows.forEach((a) => { adminMap[a.orgId] = { id: a.id, name: a.name, email: a.email, avatarUrl: a.avatarUrl }; });
   }
 
-  const data = orgs.map((org) => ({ ...org, owner: org.ownerId ? (ownersMap[org.ownerId] ?? null) : null }));
+  const data = orgs.map((org) => ({ ...org, owner: adminMap[org.id] ?? null }));
   return { data, totalRecords: countResult[0]?.total ?? 0 };
 };
 
