@@ -9,9 +9,10 @@ const importTaskItemSchema = object({
   description: nullish(pipe(string(), trim(), maxLength(5000, "Description too long"), transform((v): string | null => v === "" ? null : v))),
   priority: optional(picklist(taskPriorityEnum.enumValues, "Priority must be low, medium, high, or urgent")),
   dueDate: nullish(pipe(
-    string(), trim(), nonEmpty("Due date cannot be empty"),
-    regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"),
-    check((v) => !isNaN(Date.parse(v)), "Invalid date value"),
+    string(), trim(),
+    transform((v): string | null => v === "" ? null : v),
+    check((v) => v === null || /^\d{4}-\d{2}-\d{2}$/.test(v), "Date must be in YYYY-MM-DD format"),
+    check((v) => v === null || !isNaN(Date.parse(v)), "Invalid date value"),
   )),
   assigneeEmails: optional(array(pipe(string(), trim(), email("Invalid email format")))),
 });
