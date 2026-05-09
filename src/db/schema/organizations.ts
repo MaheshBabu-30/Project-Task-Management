@@ -1,4 +1,5 @@
-import { pgTable, uuid, varchar, text, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { isNull } from "drizzle-orm";
 import { users } from "./users.js";
 
 export const organizations = pgTable(
@@ -18,5 +19,6 @@ export const organizations = pgTable(
     index("organizations_slug_idx").on(table.slug),
     index("organizations_owner_id_idx").on(table.ownerId),
     index("organizations_deleted_at_idx").on(table.deletedAt),
+    uniqueIndex("organizations_name_unique").on(table.name).where(isNull(table.deletedAt)),
   ]
 );

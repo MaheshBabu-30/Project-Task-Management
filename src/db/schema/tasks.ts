@@ -1,4 +1,5 @@
-import { pgTable, uuid, varchar, text, timestamp, date, index, pgEnum, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, date, index, pgEnum, type AnyPgColumn, uniqueIndex } from "drizzle-orm/pg-core";
+import { isNull } from "drizzle-orm";
 import { users } from "./users.js";
 import { projects } from "./projects.js";
 
@@ -38,5 +39,6 @@ export const tasks = pgTable(
     index("tasks_priority_idx").on(table.priority),
     index("tasks_deleted_at_idx").on(table.deletedAt),
     index("tasks_due_date_idx").on(table.dueDate),
+    uniqueIndex("tasks_project_id_title_unique").on(table.projectId, table.title).where(isNull(table.deletedAt)),
   ]
 );

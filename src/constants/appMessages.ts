@@ -42,6 +42,9 @@ export const ADMIN_ROLE_REQUIRED          = "User must have the 'admin' role to 
 export const ADMIN_ALREADY_IN_ORG         = "This admin is already assigned to an organization. An admin can only belong to one organization.";
 export const ORG_ALREADY_HAS_ADMIN        = "This organization already has an admin. An organization can only have one admin.";
 export const SLUG_TAKEN                   = (slug: string) => `Slug "${slug}" is already taken. Choose a different slug.`;
+export const ORG_NAME_TAKEN               = (name: string) => `Organization with name "${name}" already exists.`;
+export const PROJECT_TITLE_TAKEN          = (title: string) => `Project with title "${title}" already exists in this organization.`;
+export const TASK_TITLE_TAKEN             = (title: string) => `Task with title "${title}" already exists in this project.`;
 
 // ─── Projects ─────────────────────────────────────────────────────────────────
 

@@ -2,7 +2,7 @@ import { db } from "../../config/db.js";
 import { projects, tasks, projectMembers, orgMembers, organizations, users, taskAssignees } from "../../db/schema/index.js";
 import { eq, ilike, and, asc, desc, isNull, isNotNull, inArray, notInArray, count, sql } from "drizzle-orm";
 import { deleteS3Object } from "../uploads/upload.service.js";
-import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";
 import type { UserSummary, PaginationQuery } from "../../types/common.types.js";
 import { createNotification } from "../notifications/notification.service.js";
@@ -45,6 +45,14 @@ export const createProject = async (data: {
       .where(and(eq(organizations.id, data.orgId), isNull(organizations.deletedAt)));
 
     if (!org) throw new NotFoundException(M.ORG_NOT_FOUND);
+
+    // Check for duplicate title within this org
+    const [existingProject] = await tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.orgId, data.orgId), eq(projects.title, data.title), isNull(projects.deletedAt)));
+
+    if (existingProject) throw new ConflictException(M.PROJECT_TITLE_TAKEN(data.title));
 
     // 1. Insert Project
     const [project] = await tx

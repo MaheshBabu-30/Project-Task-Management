@@ -2,7 +2,7 @@ import { db } from "../../config/db.js";
 import { organizations, orgMembers, users, projects, projectMembers, taskAssignees, tasks, sessions, comments } from "../../db/schema/index.js";
 import { eq, and, isNull, inArray, ilike, asc, desc, count } from "drizzle-orm";
 import { BadRequestException, ForbiddenException, NotFoundException, ConflictException, InternalServerException } from "../../exceptions/index.js";
-import { ORG_NOT_FOUND, ADMIN_ROLE_REQUIRED, ADMIN_ALREADY_IN_ORG, ORG_ALREADY_HAS_ADMIN, SLUG_TAKEN, USER_NOT_FOUND } from "../../constants/appMessages.js";
+import { ORG_NOT_FOUND, ADMIN_ROLE_REQUIRED, ADMIN_ALREADY_IN_ORG, ORG_ALREADY_HAS_ADMIN, SLUG_TAKEN, USER_NOT_FOUND, ORG_NAME_TAKEN } from "../../constants/appMessages.js";
 import type { UserSummary, PaginationQuery } from "../../types/common.types.js";
 
 interface OrgQuery extends PaginationQuery {
@@ -13,12 +13,13 @@ interface OrgQuery extends PaginationQuery {
 // ─── Create Organization ──────────────────────────────────────────────────────
 
 export const createOrganization = async (data: { name: string; slug: string; description?: string }) => {
-  const [existing] = await db
-    .select({ id: organizations.id })
-    .from(organizations)
-    .where(eq(organizations.slug, data.slug));
+  const [[existingName], [existingSlug]] = await Promise.all([
+    db.select({ id: organizations.id }).from(organizations).where(and(eq(organizations.name, data.name), isNull(organizations.deletedAt))),
+    db.select({ id: organizations.id }).from(organizations).where(eq(organizations.slug, data.slug)),
+  ]);
 
-  if (existing) throw new ConflictException(SLUG_TAKEN(data.slug));
+  if (existingName) throw new ConflictException(ORG_NAME_TAKEN(data.name));
+  if (existingSlug) throw new ConflictException(SLUG_TAKEN(data.slug));
 
   const [org] = await db
     .insert(organizations)

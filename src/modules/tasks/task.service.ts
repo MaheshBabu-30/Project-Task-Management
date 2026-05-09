@@ -2,7 +2,7 @@ import { db } from "../../config/db.js";
 import { tasks, projects, taskAssignees, projectMembers, users, organizations } from "../../db/schema/index.js";
 import { eq, and, ilike, asc, desc, inArray, isNull, isNotNull, notInArray, count, sql, gte, lte, type InferSelectModel } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { BadRequestException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";
 import { createNotification } from "../notifications/notification.service.js";
 import { catchError } from "../../utils/logger.js";
@@ -112,6 +112,14 @@ export const createTask = async (data: {
       if (!project) throw new NotFoundException(M.PROJECT_NOT_FOUND);
       if (project.orgId !== requesterOrgId) throw new ForbiddenException(M.PROJECT_WRONG_ORG);
     }
+
+    // Check for duplicate title within this project
+    const [existingTask] = await tx
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(and(eq(tasks.projectId, taskData.projectId), eq(tasks.title, taskData.title), isNull(tasks.deletedAt)));
+
+    if (existingTask) throw new ConflictException(M.TASK_TITLE_TAKEN(taskData.title));
 
     // 3. Subtask validation
     if (taskData.parentTaskId) {

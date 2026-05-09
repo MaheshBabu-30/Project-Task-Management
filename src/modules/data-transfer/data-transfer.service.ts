@@ -369,17 +369,28 @@ export const exportUsers = async (
 
 export const importOrganization = async (data: ImportOrgBody) => {
   const slugs = data.orgs.map((o) => o.slug);
-  const existingRows = await db
-    .select({ slug: organizations.slug })
-    .from(organizations)
-    .where(inArray(organizations.slug, slugs));
+  const names = data.orgs.map((o) => o.name);
 
-  const existingSlugs = new Set(existingRows.map((r) => r.slug));
-  const toCreate = data.orgs.filter((o) => !existingSlugs.has(o.slug));
-  const skippedSlugs = data.orgs.filter((o) => existingSlugs.has(o.slug)).map((o) => o.slug);
+  const [existingSlugRows, existingNameRows] = await Promise.all([
+    db.select({ slug: organizations.slug }).from(organizations).where(inArray(organizations.slug, slugs)),
+    db.select({ name: organizations.name }).from(organizations).where(and(inArray(organizations.name, names), isNull(organizations.deletedAt))),
+  ]);
+
+  const existingSlugs = new Set(existingSlugRows.map((r) => r.slug));
+  const existingNames = new Set(existingNameRows.map((r) => r.name));
+
+  const skippedOrgs = data.orgs
+    .filter((o) => existingSlugs.has(o.slug) || existingNames.has(o.name))
+    .map((o) => ({
+      name: o.name,
+      slug: o.slug,
+      reason: existingSlugs.has(o.slug) ? "Organization with this slug already exists" : "Organization with this name already exists",
+    }));
+
+  const toCreate = data.orgs.filter((o) => !existingSlugs.has(o.slug) && !existingNames.has(o.name));
 
   if (toCreate.length === 0) {
-    return { message: "Organizations imported successfully", imported: 0, skipped: skippedSlugs.length, skippedSlugs, orgs: [] };
+    return { message: "Organizations imported successfully", imported: 0, skipped: skippedOrgs.length, skippedOrgs, orgs: [] };
   }
 
   const created = await db.transaction(async (tx) => {
@@ -398,8 +409,8 @@ export const importOrganization = async (data: ImportOrgBody) => {
   return {
     message: "Organizations imported successfully",
     imported: created.length,
-    skipped: skippedSlugs.length,
-    skippedSlugs,
+    skipped: skippedOrgs.length,
+    skippedOrgs,
     orgs: created,
   };
 };
@@ -410,13 +421,31 @@ export const importProjectIntoOrg = async (data: ImportProjectBody, user: User) 
 
   await validateOrgAccess(orgId, user);
 
-  const allEmails = [...new Set(data.projects.flatMap((p) => p.assigneeEmails ?? []))];
+  const titles = data.projects.map((p) => p.title);
+  const existingTitleRows = await db
+    .select({ title: projects.title })
+    .from(projects)
+    .where(and(eq(projects.orgId, orgId), inArray(projects.title, titles), isNull(projects.deletedAt)));
+
+  const existingTitles = new Set(existingTitleRows.map((r) => r.title));
+
+  const skippedProjects = data.projects
+    .filter((p) => existingTitles.has(p.title))
+    .map((p) => ({ title: p.title, reason: "Project already exists in this organization" }));
+
+  const toCreate = data.projects.filter((p) => !existingTitles.has(p.title));
+
+  if (toCreate.length === 0) {
+    return { message: "Projects imported successfully", imported: 0, skipped: skippedProjects.length, skippedProjects, projects: [] };
+  }
+
+  const allEmails = [...new Set(toCreate.flatMap((p) => p.assigneeEmails ?? []))];
   const emailToUserId = await resolveEmailsToUserIds(orgId, allEmails);
 
   const created = await db.transaction(async (tx) => {
     const results: { projectId: string; projectTitle: string; description: string | null; skippedAssignees: { email: string; reason: string }[] }[] = [];
 
-    for (const projectData of data.projects) {
+    for (const projectData of toCreate) {
       const assigneeEmails = projectData.assigneeEmails ?? [];
       const skippedAssignees = assigneeEmails
         .filter((e) => !emailToUserId[e])
@@ -449,6 +478,8 @@ export const importProjectIntoOrg = async (data: ImportProjectBody, user: User) 
   return {
     message: "Projects imported successfully",
     imported: created.length,
+    skipped: skippedProjects.length,
+    skippedProjects,
     projects: created,
   };
 };
@@ -461,17 +492,35 @@ export const importTasksIntoProject = async (
   const project = await validateProjectAccess(projectId, user);
   const orgId = project.orgId;
 
-  const allEmails = [...new Set(taskList.flatMap((t) => t.assigneeEmails ?? []))];
+  const titles = taskList.map((t) => t.title);
+  const existingTitleRows = await db
+    .select({ title: tasks.title })
+    .from(tasks)
+    .where(and(eq(tasks.projectId, projectId), inArray(tasks.title, titles), isNull(tasks.deletedAt)));
+
+  const existingTitles = new Set(existingTitleRows.map((r) => r.title));
+
+  const skippedTasks = taskList
+    .filter((t) => existingTitles.has(t.title))
+    .map((t) => ({ title: t.title, reason: "Task already exists in this project" }));
+
+  const toCreate = taskList.filter((t) => !existingTitles.has(t.title));
+
+  const allEmails = [...new Set(toCreate.flatMap((t) => t.assigneeEmails ?? []))];
   const emailToUserId = await resolveEmailsToUserIds(orgId, allEmails);
 
   const skippedAssignees = allEmails
     .filter((e) => !emailToUserId[e])
     .map((email) => ({ email, reason: "Not a member of this organization" }));
 
+  if (toCreate.length === 0) {
+    return { message: "Tasks imported successfully", tasksImported: 0, skipped: skippedTasks.length, skippedTasks, skippedAssignees, tasks: [] };
+  }
+
   const createdTasks: { taskId: string; title: string; priority: string; dueDate: string | null }[] = [];
 
   await db.transaction(async (tx) => {
-    for (const taskData of taskList) {
+    for (const taskData of toCreate) {
       const assigneeIds = [
         ...new Set(
           (taskData.assigneeEmails ?? [])
@@ -514,7 +563,8 @@ export const importTasksIntoProject = async (
   return {
     message: "Tasks imported successfully",
     tasksImported: createdTasks.length,
-    skipped: 0,
+    skipped: skippedTasks.length,
+    skippedTasks,
     skippedAssignees,
     tasks: createdTasks,
   };
