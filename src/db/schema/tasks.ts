@@ -1,5 +1,5 @@
 import { pgTable, uuid, varchar, text, timestamp, date, index, pgEnum, type AnyPgColumn, uniqueIndex } from "drizzle-orm/pg-core";
-import { isNull } from "drizzle-orm";
+import { isNull, sql } from "drizzle-orm";
 import { users } from "./users.js";
 import { projects } from "./projects.js";
 
@@ -40,5 +40,7 @@ export const tasks = pgTable(
     index("tasks_deleted_at_idx").on(table.deletedAt),
     index("tasks_due_date_idx").on(table.dueDate),
     uniqueIndex("tasks_project_id_title_unique").on(table.projectId, table.title).where(isNull(table.deletedAt)),
+    index("tasks_project_status_check_idx").on(table.projectId).where(sql`deleted_at IS NULL AND parent_task_id IS NULL`),
+    index("tasks_overdue_candidate_idx").on(table.dueDate).where(sql`deleted_at IS NULL AND status NOT IN ('completed', 'overdue', 'on_hold')`),
   ]
 );

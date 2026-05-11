@@ -199,7 +199,7 @@ export const createTask = async (data: {
   });
 
   // Fetch assignees, project title, parent task title, and creator in parallel
-  const [assignees, projectRow, parentRow] = await Promise.all([
+  const [assignees, projectRow, parentRow, [creator = null]] = await Promise.all([
     db
       .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
       .from(taskAssignees)
@@ -213,14 +213,13 @@ export const createTask = async (data: {
     newTask.parentTaskId
       ? db.select({ title: tasks.title }).from(tasks).where(eq(tasks.id, newTask.parentTaskId)).limit(1)
       : Promise.resolve([] as { title: string }[]),
+    newTask.createdBy
+      ? db
+          .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+          .from(users)
+          .where(eq(users.id, newTask.createdBy))
+      : Promise.resolve([] as { id: string; name: string; email: string; avatarUrl: string | null }[]),
   ]);
-
-  const [creator] = newTask.createdBy
-    ? await db
-        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
-        .from(users)
-        .where(eq(users.id, newTask.createdBy))
-    : [null];
 
   return { ...newTask, projectTitle: projectRow[0]?.title ?? null, parentTaskTitle: newTask.parentTaskId ? (parentRow[0]?.title ?? null) : null, assignees, creator: creator ?? null };
 };
@@ -465,25 +464,20 @@ export const getTaskById = async (id: string, user: { userId: string; role: stri
     }
   }
 
-  // 2. Fetch assignees
-  const assignees = await db
-    .select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      avatarUrl: users.avatarUrl,
-    })
-    .from(taskAssignees)
-    .innerJoin(users, eq(taskAssignees.userId, users.id))
-    .where(eq(taskAssignees.taskId, id));
-
-  // 3. Fetch creator
-  const [creator] = task.createdBy
-    ? await db
-        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
-        .from(users)
-        .where(eq(users.id, task.createdBy))
-    : [null];
+  // 2. Fetch assignees + creator in parallel
+  const [assignees, [creator = null]] = await Promise.all([
+    db
+      .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+      .from(taskAssignees)
+      .innerJoin(users, eq(taskAssignees.userId, users.id))
+      .where(eq(taskAssignees.taskId, id)),
+    task.createdBy
+      ? db
+          .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+          .from(users)
+          .where(eq(users.id, task.createdBy))
+      : Promise.resolve([] as { id: string; name: string; email: string; avatarUrl: string | null }[]),
+  ]);
 
   // 4. Fetch subtasks (only for root tasks) with their assignees
   // Developers only see subtasks they are assigned to — same rule as root tasks.
@@ -685,7 +679,7 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
   });
 
   // Fetch assignees, project title, parent task title, and creator in parallel
-  const [assignees, projectRow, parentRow] = await Promise.all([
+  const [assignees, projectRow, parentRow, [creator = null]] = await Promise.all([
     db
       .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
       .from(taskAssignees)
@@ -699,14 +693,13 @@ export const updateTask = async (id: string, data: UpdateTaskData, orgId?: strin
     result.parentTaskId
       ? db.select({ title: tasks.title }).from(tasks).where(eq(tasks.id, result.parentTaskId)).limit(1)
       : Promise.resolve([] as { title: string }[]),
+    result.createdBy
+      ? db
+          .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+          .from(users)
+          .where(eq(users.id, result.createdBy))
+      : Promise.resolve([] as { id: string; name: string; email: string; avatarUrl: string | null }[]),
   ]);
-
-  const [creator] = result.createdBy
-    ? await db
-        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
-        .from(users)
-        .where(eq(users.id, result.createdBy))
-    : [null];
 
   // Notify assignees when a completed task is reopened (fire-and-forget)
   // Only fire when there is an actual transition TO to_do — not a no-op same-status update
@@ -861,7 +854,7 @@ export const updateTaskStatus = async (
   }
 
   // Fetch assignees, project title, parent task title, and creator in parallel
-  const [assignees, projectRow, parentRow] = await Promise.all([
+  const [assignees, projectRow, parentRow, [creator = null]] = await Promise.all([
     db
       .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
       .from(taskAssignees)
@@ -875,14 +868,13 @@ export const updateTaskStatus = async (
     statusResult.parentTaskId
       ? db.select({ title: tasks.title }).from(tasks).where(eq(tasks.id, statusResult.parentTaskId)).limit(1)
       : Promise.resolve([] as { title: string }[]),
+    statusResult.createdBy
+      ? db
+          .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
+          .from(users)
+          .where(eq(users.id, statusResult.createdBy))
+      : Promise.resolve([] as { id: string; name: string; email: string; avatarUrl: string | null }[]),
   ]);
-
-  const [creator] = statusResult.createdBy
-    ? await db
-        .select({ id: users.id, name: users.name, email: users.email, avatarUrl: users.avatarUrl })
-        .from(users)
-        .where(eq(users.id, statusResult.createdBy))
-    : [null];
 
   return { ...statusResult, projectTitle: projectRow[0]?.title ?? null, parentTaskTitle: statusResult.parentTaskId ? (parentRow[0]?.title ?? null) : null, assignees, creator: creator ?? null };
 };

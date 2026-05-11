@@ -99,17 +99,15 @@ export const softDeleteOrg = async (orgId: string, deletedBy: string) => {
     const projectIds = orgProjects.map((p) => p.id);
 
     if (projectIds.length > 0) {
-      const orgTaskIds = await tx
+      const taskSubquery = tx
         .select({ id: tasks.id })
         .from(tasks)
         .where(and(inArray(tasks.projectId, projectIds), isNull(tasks.deletedAt)));
 
-      if (orgTaskIds.length > 0) {
-        await tx
-          .update(comments)
-          .set({ deletedAt: now })
-          .where(and(inArray(comments.taskId, orgTaskIds.map((t) => t.id)), isNull(comments.deletedAt)));
-      }
+      await tx
+        .update(comments)
+        .set({ deletedAt: now })
+        .where(and(inArray(comments.taskId, taskSubquery), isNull(comments.deletedAt)));
 
       await tx.update(tasks).set({ deletedAt: now }).where(and(inArray(tasks.projectId, projectIds), isNull(tasks.deletedAt)));
       await tx.update(projects).set({ deletedAt: now }).where(eq(projects.orgId, orgId));
@@ -240,11 +238,8 @@ export const removeMemberFromOrg = async (orgId: string, userId: string) => {
     const projectIds = orgProjects.map((p) => p.id);
 
     if (projectIds.length > 0) {
-      const orgTasks = await tx.select({ id: tasks.id }).from(tasks).where(inArray(tasks.projectId, projectIds));
-      const taskIds = orgTasks.map((t) => t.id);
-      if (taskIds.length > 0) {
-        await tx.delete(taskAssignees).where(and(eq(taskAssignees.userId, userId), inArray(taskAssignees.taskId, taskIds)));
-      }
+      const taskSubquery = tx.select({ id: tasks.id }).from(tasks).where(inArray(tasks.projectId, projectIds));
+      await tx.delete(taskAssignees).where(and(eq(taskAssignees.userId, userId), inArray(taskAssignees.taskId, taskSubquery)));
       await tx.delete(projectMembers).where(and(eq(projectMembers.userId, userId), inArray(projectMembers.projectId, projectIds)));
     }
 

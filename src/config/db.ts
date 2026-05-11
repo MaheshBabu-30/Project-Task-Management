@@ -26,6 +26,7 @@ const connectionString = stripSslMode(process.env.DATABASE_URL ?? "");
 
 const pool = new Pool({
   connectionString,
+  max: 25,
   ssl: fs.existsSync(caPath)
     ? { ca: fs.readFileSync(caPath).toString(), rejectUnauthorized: true }
     : { rejectUnauthorized: false }, // no CA cert — encrypt but skip cert verification (standard for hosted DBs)

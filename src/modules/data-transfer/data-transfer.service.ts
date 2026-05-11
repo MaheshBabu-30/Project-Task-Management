@@ -520,7 +520,26 @@ export const importTasksIntoProject = async (
   const createdTasks: { taskId: string; title: string; priority: string; dueDate: string | null }[] = [];
 
   await db.transaction(async (tx) => {
-    for (const taskData of toCreate) {
+    const inserted = await tx
+      .insert(tasks)
+      .values(
+        toCreate.map((taskData) => ({
+          projectId,
+          title: taskData.title,
+          description: taskData.description ?? null,
+          priority: (taskData.priority ?? "medium") as TaskPriority,
+          status: "to_do" as const,
+          dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
+          createdBy: user.userId,
+        })),
+      )
+      .returning({ id: tasks.id });
+
+    if (inserted.length !== toCreate.length) throw new InternalServerException(M.TASK_CREATE_FAILED);
+
+    const assigneeRows: { taskId: string; userId: string }[] = [];
+    inserted.forEach((task, i) => {
+      const taskData = toCreate[i]!;
       const assigneeIds = [
         ...new Set(
           (taskData.assigneeEmails ?? [])
@@ -528,33 +547,14 @@ export const importTasksIntoProject = async (
             .filter((id): id is string => !!id),
         ),
       ];
+      for (const userId of assigneeIds) assigneeRows.push({ taskId: task.id, userId });
+      createdTasks.push({ taskId: task.id, title: taskData.title, priority: taskData.priority ?? "medium", dueDate: taskData.dueDate ?? null });
+    });
 
-      const [task] = await tx
-        .insert(tasks)
-        .values({
-          projectId,
-          title: taskData.title,
-          description: taskData.description ?? null,
-          priority: (taskData.priority ?? "medium") as TaskPriority,
-          status: "to_do",
-          dueDate: taskData.dueDate ? new Date(taskData.dueDate) : null,
-          createdBy: user.userId,
-        })
-        .returning({ id: tasks.id });
-
-      if (!task) throw new InternalServerException(M.TASK_CREATE_FAILED);
-
-      if (assigneeIds.length > 0) {
-        await tx.insert(taskAssignees).values(assigneeIds.map((userId) => ({ taskId: task.id, userId })));
-        await tx.insert(projectMembers).values(assigneeIds.map((userId) => ({ projectId, userId }))).onConflictDoNothing();
-      }
-
-      createdTasks.push({
-        taskId: task.id,
-        title: taskData.title,
-        priority: taskData.priority ?? "medium",
-        dueDate: taskData.dueDate ?? null,
-      });
+    if (assigneeRows.length > 0) {
+      const uniqueMemberIds = [...new Set(assigneeRows.map((r) => r.userId))];
+      await tx.insert(taskAssignees).values(assigneeRows);
+      await tx.insert(projectMembers).values(uniqueMemberIds.map((userId) => ({ projectId, userId }))).onConflictDoNothing();
     }
 
     await reconcileProjectStatus(tx, projectId);
@@ -575,7 +575,7 @@ export const importUsersIntoOrg = async (
   user: User,
   orgId?: string,
 ) => {
-  const assignedRole = user.role === "superadmin" ? "admin" : "developer";
+  const assignedRole = (user.role === "superadmin" ? "admin" : "developer") as "admin" | "developer";
 
   if (user.role === "admin") {
     if (!orgId) throw new ForbiddenException("No organization associated with your account");
@@ -615,35 +615,29 @@ export const importUsersIntoOrg = async (
   );
 
   const created = await db.transaction(async (tx) => {
-    const results: { id: string; email: string; name: string; tempPassword: string }[] = [];
+    const inserted = await tx
+      .insert(users)
+      .values(prepared.map((u) => ({ name: u.name, email: u.email, passwordHash: u.passwordHash, role: assignedRole })))
+      .returning({ id: users.id, email: users.email, name: users.name });
 
-    for (const userData of prepared) {
-      const [newUser] = await tx
-        .insert(users)
-        .values({
-          name: userData.name,
-          email: userData.email,
-          passwordHash: userData.passwordHash,
-          role: assignedRole,
-        })
-        .returning({ id: users.id, email: users.email, name: users.name });
+    if (!inserted.length) throw new InternalServerException(M.USER_CREATE_FAILED_IMPORT);
 
-      if (!newUser) throw new InternalServerException(M.USER_CREATE_FAILED_IMPORT);
-
-      if (user.role === "admin" && orgId) {
-        await tx.insert(orgMembers).values({ orgId, userId: newUser.id, role: "developer" });
-      }
-
-      results.push({ ...newUser, tempPassword: userData.tempPassword });
+    if (user.role === "admin" && orgId) {
+      await tx.insert(orgMembers).values(inserted.map((u) => ({ orgId, userId: u.id, role: "developer" as const })));
     }
 
-    return results;
+    return inserted.map((u) => {
+      const match = prepared.find((p) => p.email === u.email)!;
+      return { ...u, tempPassword: match.tempPassword };
+    });
   });
 
-  for (const u of created) {
-    const sent = await sendWelcomeEmail(u.email, u.name, u.tempPassword);
-    if (!sent) logger.warn(`Welcome email not sent to ${u.email}`, "data-transfer");
-  }
+  await Promise.all(
+    created.map(async (u) => {
+      const sent = await sendWelcomeEmail(u.email, u.name, u.tempPassword);
+      if (!sent) logger.warn(`Welcome email not sent to ${u.email}`, "data-transfer");
+    }),
+  );
 
   return {
     message: "Users imported successfully",

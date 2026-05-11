@@ -101,18 +101,21 @@ export const updateTaskDetails = async (c: AppContext) => {
       user.orgId ? Promise.resolve(user.orgId) : getTaskOrgId(id),
     ]);
     const updated = await updateTaskStatus(id, status, user);
-    const afterSnap = await getTaskSnapshot(id);
 
-    createAuditLog({
-      orgId: taskOrgId,
-      actorId: user.userId,
-      action: "task.status_updated",
-      entityType: "task",
-      entityId: id,
-      before: existing ?? undefined,
-      after: afterSnap ?? undefined,
-      ipAddress: getIp(c),
-    }).catch(catchError("task.controller:auditLog"));
+    getTaskSnapshot(id)
+      .then((afterSnap) =>
+        createAuditLog({
+          orgId: taskOrgId,
+          actorId: user.userId,
+          action: "task.status_updated",
+          entityType: "task",
+          entityId: id,
+          before: existing ?? undefined,
+          after: afterSnap ?? undefined,
+          ipAddress: getIp(c),
+        }).catch(catchError("task.controller:auditLog")),
+      )
+      .catch(catchError("task.controller:afterSnap"));
 
     return successResponse(c, updated);
   }
@@ -124,20 +127,23 @@ export const updateTaskDetails = async (c: AppContext) => {
     user.orgId ? Promise.resolve(user.orgId) : getTaskOrgId(id),
   ]);
   const updated = await updateTask(id, data, user.orgId);
-  const afterSnap = await getTaskSnapshot(id);
 
-  if (JSON.stringify(existing) !== JSON.stringify(afterSnap)) {
-    createAuditLog({
-      orgId: taskOrgId,
-      actorId: user.userId,
-      action: "task.updated",
-      entityType: "task",
-      entityId: id,
-      before: existing ?? undefined,
-      after: afterSnap ?? undefined,
-      ipAddress: getIp(c),
-    }).catch(catchError("task.controller:auditLog"));
-  }
+  getTaskSnapshot(id)
+    .then((afterSnap) => {
+      if (JSON.stringify(existing) !== JSON.stringify(afterSnap)) {
+        createAuditLog({
+          orgId: taskOrgId,
+          actorId: user.userId,
+          action: "task.updated",
+          entityType: "task",
+          entityId: id,
+          before: existing ?? undefined,
+          after: afterSnap ?? undefined,
+          ipAddress: getIp(c),
+        }).catch(catchError("task.controller:auditLog"));
+      }
+    })
+    .catch(catchError("task.controller:afterSnap"));
 
   return successResponse(c, updated);
 };

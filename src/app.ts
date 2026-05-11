@@ -21,11 +21,12 @@ const app = new Hono<AppEnv>();
 
 app.use("*", secureHeaders());
 
+const allowedOrigins = env.ALLOWED_ORIGINS === "*" ? "*" : new Set(env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()));
+
 app.use("*", cors({
   origin: (origin) => {
-    if (env.ALLOWED_ORIGINS === "*") return origin;
-    const allowed = env.ALLOWED_ORIGINS.split(",").map(o => o.trim());
-    return allowed.includes(origin) ? origin : null;
+    if (allowedOrigins === "*") return origin;
+    return allowedOrigins.has(origin) ? origin : null;
   },
   credentials: true,
   allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],

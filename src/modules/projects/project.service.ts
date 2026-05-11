@@ -171,26 +171,29 @@ export const getProjects = async (
   const orderColumn = (sortBy in validColumns ? validColumns[sortBy as keyof typeof validColumns] : projects.id);
   const orderDirection = order === "desc" ? desc(orderColumn) : asc(orderColumn);
 
-  const data = await db
-    .select({
-      id: projects.id,
-      orgId: projects.orgId,
-      orgName: organizations.name,
-      title: projects.title,
-      description: projects.description,
-      logoUrl: projects.logoUrl,
-      status: projects.status,
-      createdBy: projects.createdBy,
-      createdAt: projects.createdAt,
-      updatedAt: projects.updatedAt,
-      deletedAt: projects.deletedAt,
-    })
-    .from(projects)
-    .leftJoin(organizations, eq(projects.orgId, organizations.id))
-    .where(whereCondition)
-    .orderBy(orderDirection)
-    .limit(limit)
-    .offset(offset);
+  const [data, countResult] = await Promise.all([
+    db
+      .select({
+        id: projects.id,
+        orgId: projects.orgId,
+        orgName: organizations.name,
+        title: projects.title,
+        description: projects.description,
+        logoUrl: projects.logoUrl,
+        status: projects.status,
+        createdBy: projects.createdBy,
+        createdAt: projects.createdAt,
+        updatedAt: projects.updatedAt,
+        deletedAt: projects.deletedAt,
+      })
+      .from(projects)
+      .leftJoin(organizations, eq(projects.orgId, organizations.id))
+      .where(whereCondition)
+      .orderBy(orderDirection)
+      .limit(limit)
+      .offset(offset),
+    db.select({ total: count() }).from(projects).where(whereCondition),
+  ]);
 
   // 4. Batch fetch members (Fix N+1)
   const projectIds = data.map((p) => p.id);
@@ -238,11 +241,6 @@ export const getProjects = async (
     members: membersMap[p.id] || [],
     creator: p.createdBy ? (creatorsMap[p.createdBy] ?? null) : null,
   }));
-
-  const countResult = await db
-    .select({ total: count() })
-    .from(projects)
-    .where(whereCondition);
 
   return { data: dataWithMembers, totalRecords: countResult[0]?.total ?? 0 };
 };
