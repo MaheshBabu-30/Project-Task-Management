@@ -7,10 +7,12 @@ import {
   exportProjects,
   exportTasks,
   exportUsers,
-  importTasksIntoProject,
   importProjectIntoOrg,
   importOrganization,
   importUsersIntoOrg,
+  createTaskImportJob,
+  processImportJob,
+  getImportJobStatus,
 } from "./data-transfer.service.js";
 import { successResponse } from "../../utils/response.js";
 import { taskStatusEnum, taskPriorityEnum, projectStatusEnum } from "../../db/schema/index.js";
@@ -18,6 +20,8 @@ import type { TaskStatus, TaskPriority } from "../../types/task.types.js";
 import { BadRequestException, ForbiddenException } from "../../exceptions/index.js";
 import { createAuditLog } from "../audit-logs/audit-log.service.js";
 import { catchError } from "../../utils/logger.js";
+import { qstashClient, qstashReceiver } from "../../config/qstash.js";
+import { env } from "../../config/env.js";
 
 // ─── Unified Export ───────────────────────────────────────────────────────────
 //
@@ -131,13 +135,16 @@ export const exportHandler = async (c: AppContext) => {
 // POST /import?type=organization|project|tasks|users
 //
 // superadmin → type=organization or type=users
-//   organization: body { org: { name, slug, description } }
-//   users:        body { users: [{name, email}] }  ?orgId=UUID (required for superadmin)
+//   organization: body { orgs: [{name, slug, description}] }
+//   users:        body { users: [{name, email}] }
 //
 // admin → type=project|tasks|users (org from JWT)
-//   project: body { project: { title, description, assigneeEmails? } }
+//   project: body { projects: [{title, description, assigneeEmails?}] }
 //   tasks:   body { tasks: [{title, description, priority, dueDate, assigneeEmails?}] }  ?projectId=UUID
 //   users:   body { users: [{name, email}] }
+//
+// tasks import is async via QStash (or sync fallback when QSTASH_TOKEN is not set).
+// All other types are synchronous.
 
 export const importHandler = async (c: AppContext) => {
   const user = c.get("user");
@@ -170,7 +177,6 @@ export const importHandler = async (c: AppContext) => {
     }
     return successResponse(c, result, 201);
   }
-
 
   if (type === "users") {
     const body = await c.req.json();
@@ -208,20 +214,78 @@ export const importHandler = async (c: AppContext) => {
     return successResponse(c, result, 201);
   }
 
-  // type === "tasks"
+  // type === "tasks" — async via QStash (sync fallback if QSTASH_TOKEN not set)
   const rawProjectId = c.req.query("projectId");
   if (!rawProjectId) throw new BadRequestException("projectId query param is required");
   const projectId = parse(uuidSchema("projectId"), rawProjectId);
   const body = await c.req.json();
   const { tasks: taskList } = parse(importTasksBodySchema, body);
-  const result = await importTasksIntoProject(projectId, taskList, user);
+
+  const { jobId, orgId } = await createTaskImportJob(taskList, projectId, user);
+
+  // Async path: hand off to QStash
+  if (qstashClient && env.APP_BASE_URL) {
+    await qstashClient.publishJSON({
+      url: `${env.APP_BASE_URL}/api/import/callback`,
+      body: { jobId },
+      retries: 3,
+    });
+    return successResponse(c, { status: "queued", jobId, message: "Import queued for processing. Poll /api/import/status/:jobId for result." }, 202);
+  }
+
+  // Sync fallback (local dev — no QSTASH_TOKEN)
+  const result = await processImportJob(jobId);
   createAuditLog({
-    orgId: user.orgId,
+    orgId,
     actorId: user.userId,
     action: "import.tasks",
     entityType: "organization",
     entityId: projectId,
-    after: { imported: result.tasksImported, projectId },
+    after: { jobId, imported: (result as any).tasksImported, projectId },
   }).catch(catchError("data-transfer.controller:auditLog"));
-  return successResponse(c, result, 201);
+  return successResponse(c, { jobId, ...result }, 201);
+};
+
+// ─── QStash Callback ──────────────────────────────────────────────────────────
+//
+// POST /import/callback
+// Called by QStash — no auth middleware, verified via QStash signature.
+
+export const importCallbackHandler = async (c: AppContext) => {
+  const rawBody = await c.req.text();
+
+  if (qstashReceiver) {
+    const signature = c.req.header("upstash-signature") ?? "";
+    if (!signature) throw new BadRequestException("Missing QStash signature");
+    try {
+      await qstashReceiver.verify({ signature, body: rawBody });
+    } catch {
+      return c.json({ error: "Invalid QStash signature" }, 403);
+    }
+  }
+
+  let parsed: { jobId?: string };
+  try {
+    parsed = JSON.parse(rawBody);
+  } catch {
+    throw new BadRequestException("Invalid JSON in callback body");
+  }
+  const { jobId } = parsed;
+  if (!jobId) throw new BadRequestException("Missing jobId in callback body");
+
+  await processImportJob(jobId);
+  return c.json({ ok: true });
+};
+
+// ─── Import Job Status ────────────────────────────────────────────────────────
+//
+// GET /import/status/:jobId
+// Auth required — admin or superadmin.
+
+export const importStatusHandler = async (c: AppContext) => {
+  const user = c.get("user");
+  const jobId = c.req.param("jobId");
+  parse(uuidSchema("jobId"), jobId);
+  const job = await getImportJobStatus(jobId, user);
+  return successResponse(c, job);
 };

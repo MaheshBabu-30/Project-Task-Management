@@ -21,7 +21,7 @@ export const importTasksBodySchema = object({
   tasks: pipe(
     array(importTaskItemSchema),
     minLength(1, "At least one task is required"),
-    maxLength(500, "Cannot import more than 500 tasks at once"),
+    maxLength(25000, "Cannot import more than 25,000 tasks at once"),
   ),
 });
 

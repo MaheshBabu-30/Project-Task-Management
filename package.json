@@ -21,6 +21,7 @@
     "@aws-sdk/client-s3": "^3.1026.0",
     "@aws-sdk/s3-request-presigner": "^3.1026.0",
     "@hono/node-server": "^1.19.9",
+    "@upstash/qstash": "^2.10.1",
     "bcrypt": "^6.0.0",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",

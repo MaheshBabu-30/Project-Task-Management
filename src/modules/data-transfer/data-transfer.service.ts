@@ -1,8 +1,8 @@
 import bcrypt from "bcrypt";
 import { randomBytes } from "crypto";
 import { db } from "../../config/db.js";
-import { tasks, projects, taskAssignees, projectMembers, orgMembers, users, organizations } from "../../db/schema/index.js";
-import { eq, ilike, and, isNull, inArray, count, sql, gte, lte } from "drizzle-orm";
+import { tasks, projects, taskAssignees, projectMembers, orgMembers, users, organizations, importJobs, importStaging } from "../../db/schema/index.js";
+import { eq, ilike, and, isNull, inArray, count, sql, gte, lte, asc } from "drizzle-orm";
 import { ForbiddenException, NotFoundException, InternalServerException } from "../../exceptions/index.js";
 import * as M from "../../constants/appMessages.js";
 import { sendWelcomeEmail } from "../../utils/mail.service.js";
@@ -651,5 +651,231 @@ export const importUsersIntoOrg = async (
     skipped: skippedUsers.length,
     skippedUsers,
     users: created.map((u) => ({ userId: u.id, name: u.name, email: u.email, role: assignedRole })),
+  };
+};
+
+// ─── QStash Import Job: Tasks ─────────────────────────────────────────────────
+
+type StagingTaskRow = {
+  title: string;
+  description?: string | null;
+  priority?: string;
+  dueDate?: string | null;
+  assigneeEmails?: string[];
+};
+
+const processTasksJob = async (
+  job: typeof importJobs.$inferSelect,
+  stagingRows: (typeof importStaging.$inferSelect)[],
+): Promise<{
+  tasksImported: number;
+  skipped: number;
+  failedRows: number;
+  skippedTasks: { title: string; reason: string }[];
+  failures: { rowIndex: number; title?: string; error: string }[];
+}> => {
+  const projectId = job.projectId!;
+  const orgId = job.orgId!;
+
+  const parsedRows = stagingRows.map((r) => ({
+    rowIndex: r.rowIndex,
+    data: r.rowData as StagingTaskRow,
+  }));
+
+  // Check existing titles in the project (batched to avoid huge inArray)
+  const allTitles = parsedRows.map((r) => r.data.title);
+  const existingTitles = new Set<string>();
+  const TITLE_BATCH = 5000;
+  for (let i = 0; i < allTitles.length; i += TITLE_BATCH) {
+    const batch = allTitles.slice(i, i + TITLE_BATCH);
+    const rows = await db
+      .select({ title: tasks.title })
+      .from(tasks)
+      .where(and(eq(tasks.projectId, projectId), inArray(tasks.title, batch), isNull(tasks.deletedAt)));
+    rows.forEach((r) => existingTitles.add(r.title));
+  }
+
+  const skippedTasks = parsedRows
+    .filter((r) => existingTitles.has(r.data.title))
+    .map((r) => ({ title: r.data.title, reason: "Task already exists in this project" }));
+
+  const toCreate = parsedRows.filter((r) => !existingTitles.has(r.data.title));
+
+  // Resolve all assignee emails to user IDs upfront
+  const allEmails = [...new Set(toCreate.flatMap((r) => r.data.assigneeEmails ?? []))];
+  const emailToUserId = allEmails.length > 0 ? await resolveEmailsToUserIds(orgId, allEmails) : {};
+
+  // Build a lookup: title → assigneeEmails (for after bulk insert)
+  const titleToEmails: Record<string, string[]> = {};
+  toCreate.forEach((r) => { titleToEmails[r.data.title] = r.data.assigneeEmails ?? []; });
+
+  const failures: { rowIndex: number; title?: string; error: string }[] = [];
+  let tasksImported = 0;
+
+  const BATCH_SIZE = 1000;
+  for (let i = 0; i < toCreate.length; i += BATCH_SIZE) {
+    const batch = toCreate.slice(i, i + BATCH_SIZE);
+    try {
+      const inserted = await db
+        .insert(tasks)
+        .values(batch.map((r) => ({
+          projectId,
+          title: r.data.title,
+          description: r.data.description ?? null,
+          priority: (r.data.priority ?? "medium") as TaskPriority,
+          status: "to_do" as const,
+          dueDate: r.data.dueDate ? new Date(r.data.dueDate) : null,
+          createdBy: job.createdBy,
+        })))
+        .onConflictDoNothing()
+        .returning({ id: tasks.id, title: tasks.title });
+
+      tasksImported += inserted.length;
+
+      const assigneeInserts: { taskId: string; userId: string }[] = [];
+      const projectMemberInserts: { projectId: string; userId: string }[] = [];
+
+      for (const t of inserted) {
+        const emails = titleToEmails[t.title] ?? [];
+        const userIds = [...new Set(emails.map((e) => emailToUserId[e]).filter((id): id is string => !!id))];
+        for (const userId of userIds) {
+          assigneeInserts.push({ taskId: t.id, userId });
+          projectMemberInserts.push({ projectId, userId });
+        }
+      }
+
+      if (assigneeInserts.length > 0) {
+        await db.insert(taskAssignees).values(assigneeInserts);
+      }
+      if (projectMemberInserts.length > 0) {
+        await db.insert(projectMembers).values(projectMemberInserts).onConflictDoNothing();
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Batch insert failed";
+      batch.forEach((r) => failures.push({ rowIndex: r.rowIndex, title: r.data.title, error: msg }));
+    }
+  }
+
+  await db.transaction(async (tx) => reconcileProjectStatus(tx, projectId));
+
+  return { tasksImported, skipped: skippedTasks.length, failedRows: failures.length, skippedTasks, failures };
+};
+
+// ─── Create Task Import Job ───────────────────────────────────────────────────
+
+export const createTaskImportJob = async (
+  taskList: ImportTasksBody["tasks"],
+  projectId: string,
+  user: User,
+) => {
+  const project = await validateProjectAccess(projectId, user);
+  const orgId = project.orgId;
+
+  const jobId = await db.transaction(async (tx) => {
+    const [job] = await tx
+      .insert(importJobs)
+      .values({ type: "tasks", status: "pending", orgId, projectId, createdBy: user.userId, totalRows: taskList.length })
+      .returning({ id: importJobs.id });
+
+    if (!job) throw new InternalServerException("Failed to create import job");
+
+    const CHUNK = 500;
+    for (let i = 0; i < taskList.length; i += CHUNK) {
+      const chunk = taskList.slice(i, i + CHUNK);
+      await tx.insert(importStaging).values(
+        chunk.map((rowData, idx) => ({ jobId: job.id, rowIndex: i + idx, rowData })),
+      );
+    }
+
+    return job.id;
+  });
+
+  return { jobId, orgId };
+};
+
+// ─── Process Import Job (called by QStash callback or sync fallback) ──────────
+
+export const processImportJob = async (jobId: string) => {
+  const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
+  if (!job) throw new NotFoundException("Import job not found");
+
+  // Idempotency: skip if already done
+  if (job.status === "completed" || job.status === "failed") {
+    return { alreadyProcessed: true, status: job.status, ...(job.result ? JSON.parse(job.result) : {}) };
+  }
+  if (job.status === "processing") {
+    return { alreadyProcessed: true, status: "processing" };
+  }
+
+  await db.update(importJobs).set({ status: "processing", updatedAt: new Date() }).where(eq(importJobs.id, jobId));
+
+  const stagingRows = await db
+    .select()
+    .from(importStaging)
+    .where(eq(importStaging.jobId, jobId))
+    .orderBy(asc(importStaging.rowIndex));
+
+  try {
+    const result = await processTasksJob(job, stagingRows);
+
+    await db.delete(importStaging).where(eq(importStaging.jobId, jobId));
+
+    const now = new Date();
+    const finalStatus = result.tasksImported === 0 && result.failedRows > 0 ? "failed" : "completed";
+    await db.update(importJobs).set({
+      status: finalStatus,
+      processedRows: result.tasksImported,
+      failedRows: result.failedRows,
+      result: JSON.stringify(result),
+      updatedAt: now,
+      completedAt: now,
+    }).where(eq(importJobs.id, jobId));
+
+    return result;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    const now = new Date();
+    await db.update(importJobs).set({ status: "failed", error: msg, updatedAt: now, completedAt: now }).where(eq(importJobs.id, jobId));
+    throw err;
+  }
+};
+
+// ─── Get Import Job Status ────────────────────────────────────────────────────
+
+export const getImportJobStatus = async (jobId: string, user: User) => {
+  const [job] = await db.select().from(importJobs).where(eq(importJobs.id, jobId));
+  if (!job) throw new NotFoundException("Import job not found");
+
+  if (user.role === "admin" && job.orgId !== user.orgId) {
+    throw new ForbiddenException("You don't have access to this job");
+  }
+
+  let duration: string | null = null;
+  if (job.createdAt && job.completedAt) {
+    const ms = job.completedAt.getTime() - job.createdAt.getTime();
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const parts: string[] = [];
+    if (hours > 0) parts.push(`${hours} hr`);
+    if (minutes > 0) parts.push(`${minutes} min`);
+    if (seconds > 0 || parts.length === 0) parts.push(`${seconds} sec`);
+    duration = parts.join(", ");
+  }
+
+  return {
+    jobId: job.id,
+    type: job.type,
+    status: job.status,
+    totalRows: job.totalRows,
+    processedRows: job.processedRows,
+    failedRows: job.failedRows,
+    result: job.result ? JSON.parse(job.result) : null,
+    error: job.error ?? null,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    completedAt: job.completedAt ?? null,
+    duration,
   };
 };
